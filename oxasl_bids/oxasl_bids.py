@@ -18,6 +18,7 @@ import nibabel
 import bids
 import numpy as np 
 import toblerone
+from scipy.ndimage import affine_transform
 
 from . import utils
 from .mappings import map_keys
@@ -191,8 +192,14 @@ def prepare_alignment_target(target_path, asl_path):
     for idx in range(3):
         new_affine[:,idx] *= factor[idx]
     
-    vol = np.zeros(dims, dtype=np.int8)
-    align_img = nibabel.Nifti2Image(vol, affine=new_affine)
+    target_img = target.get_fdata()
+    min_max = (target_img.min(), target_img.max())
+    asl2target = np.linalg.inv(target.affine) @ new_affine
+    vol = affine_transform(target_img, asl2target, 
+        output_shape=dims, mode='constant')
+    vol[vol < min_max[0]] = min_max[0]
+    vol[vol > min_max[1]] = min_max[1]
+    align_img = nibabel.Nifti2Image(vol.astype(np.float32), affine=new_affine)
 
     return align_img
 
@@ -243,6 +250,7 @@ def prepare_config_files(argv):
                 outpath =  op.join(config_dir, 'oxasl_config.txt')
                 rel_path_root = op.abspath(op.join(oxdir, '..'))
                 outstring = dump_to_string(oxasl_args, rel_path_root)
+                outstring += "--output={} ".format(oxdir)
 
                 if fsl_anat: 
                     anatdir = asl_dir.replace('sourcedata', 'derivatives')
@@ -253,7 +261,7 @@ def prepare_config_files(argv):
                     elif not len(anatdirs):
                         raise RuntimeError(f"Did not find fsl_anat dir in {anatdir}")
                     fslanat = op.relpath(anatdirs[0], rel_path_root)
-                    outstring += f'--fslanat {fslanat}'
+                    outstring += "--fslanat={} ".format(fslanat)
 
                 if align_spc and fsl_anat: 
                     t1 = op.join(anatdirs[0], 'T1_biascorr_brain.nii.gz')
