@@ -9,11 +9,15 @@ import copy
 import warnings
 import sys 
 import copy 
+import functools
 import subprocess
+import multiprocessing as mp
+import shutil
 
 import nibabel 
 import bids
 import numpy as np 
+import toblerone
 
 from . import utils
 from .mappings import map_keys
@@ -76,7 +80,7 @@ def extract_asl_and_calib(asl_dir, asl_file):
     else: 
         raise RuntimeError("Could not interpret label-control order")
 
-    if calib_frames: 
+    if calib_frames.size: 
         # Extract and save the ASL and calib frames separately 
         assert (js_dict['M0'] is True), 'JSON M0 field does not match ASLContext' 
         asl_path = op.join(op.join(asl_dir, asl_file))
@@ -101,7 +105,7 @@ def extract_asl_and_calib(asl_dir, asl_file):
         calib_path = op.join(asl_dir, js_dict['M0'])
         if not op.exists(calib_path):
             raise FileNotFoundError(f"Could not find M0: {calib_path}")            
-        asl_path = asl_file
+        asl_path = op.join(asl_dir, asl_file)
 
     assert op.exists(asl_path)
     assert op.exists(calib_path)
@@ -122,7 +126,7 @@ def make_oxasl_config(asl_dir, asl_file):
     oxasl_args = map_keys(jsfile)
     oxasl_args['asldata'] = asl_path
     oxasl_args['calib'] = calib_path
-    oxasl_args['iaf']
+    oxasl_args['iaf'] = asl_format
 
     # Post-processing (remove mutually exclusive keys)
     if oxasl_args.get('casl'):
@@ -193,6 +197,11 @@ def prepare_alignment_target(target_path, asl_path):
     return align_img
 
 
+def wipe_dir(path):
+    shutil.rmtree(path)
+    os.makedirs(path, exist_ok=True)
+
+
 
 def prepare_config_files(argv): 
     parser = argparse.ArgumentParser()
@@ -200,20 +209,25 @@ def prepare_config_files(argv):
     parser.add_argument('--common_args', required=True, 
         type=str, nargs=argparse.REMAINDER)
     parser.add_argument('--align', type=str)
+    parser.add_argument('--overwrite', action='store_true')
+    parser.add_argument('--fsl_anat', action='store_true')
 
     args = dict(vars(parser.parse_args(argv)))
     bids_root = args.pop('bidsdir')
     align_spc = args.pop('align')
+    fsl_anat = args.pop('fsl_anat')
+    overwrite = args.pop('overwrite')
     common_args = args['common_args']
 
+    if align_spc and (align_spc != 'anat'):
+        raise RuntimeError("Not implemented yet")
+    if align_spc and (not fsl_anat):
+        raise RuntimeError("--align must be used with --fsl_anat") 
+
     file_count = 0 
-    for asl_dir in walk_asl_dirs(bids_root, 'sourcedata'):
+    for asl_dir in walk_modality_dirs(bids_root, 'sourcedata', 'asl'):
         asl_niftis = glob.glob(op.join(asl_dir, '*_asl.nii.gz'))
         asl_niftis = [ op.split(p)[1] for p in asl_niftis ]
-
-        # Grab the structural image if needed for alignment
-        if align_spc: 
-            align_target = get_alignment_path(align_spc, asl_dir)
 
         for asl in asl_niftis: 
             # Write back into corresponding position in derivs directory
@@ -221,17 +235,33 @@ def prepare_config_files(argv):
                 oxasl_args = make_oxasl_config(asl_dir, asl)
                 oxasl_args = guarded_merge(common_args, oxasl_args)
                 oxdir = oxasl_dir(asl_dir, asl)
+                if overwrite: 
+                    wipe_dir(oxdir)
+                elif os.listdir(oxdir):
+                    raise RuntimeError(f"Oxasl output directory {oxdir} is not empty. Use --overwrite option.")
                 config_dir = configuration_dir(asl_dir, asl)
                 outpath =  op.join(config_dir, 'oxasl_config.txt')
                 rel_path_root = op.abspath(op.join(oxdir, '..'))
                 outstring = dump_to_string(oxasl_args, rel_path_root)
 
-                if align_spc: 
-                    align_img = prepare_alignment_target(align_target, asl)
-                    align_path = op.join(oxdir, 'oxasl_bids_common_space.nii.gz')
+                if fsl_anat: 
+                    anatdir = asl_dir.replace('sourcedata', 'derivatives')
+                    anatdir = anatdir.replace('asl', 'anat')
+                    anatdirs = glob.glob(op.join(anatdir, 'sub-*T1w.anat'))
+                    if len(anatdirs) > 1:
+                        raise RuntimeError(f"Found multiple fsl_anat dirs in {anatdir}")
+                    elif not len(anatdirs):
+                        raise RuntimeError(f"Did not find fsl_anat dir in {anatdir}")
+                    fslanat = op.relpath(anatdirs[0], rel_path_root)
+                    outstring += f'--fslanat {fslanat}'
+
+                if align_spc and fsl_anat: 
+                    t1 = op.join(anatdirs[0], 'T1_biascorr_brain.nii.gz')
+                    align_img = prepare_alignment_target(t1, op.join(asl_dir, asl))
+                    align_path = op.join(config_dir, 'oxasl_bids_common_space.nii.gz')
                     nibabel.save(align_img, align_path)
-                    align_mat = utils._world_to_FLIRT(align_target, align_path, np.eye(4))
-                    align_mat_path = op.join(oxdir, 'oxasl_bids_common_space_flirt.txt')
+                    align_mat = utils._world_to_FLIRT(t1, align_path, np.eye(4))
+                    align_mat_path = op.join(config_dir, 'oxasl_bids_common_space_flirt.txt')
                     rel_mat_path, rel_algn_path = [ op.relpath(p, rel_path_root) 
                         for p in [ align_mat_path, align_path ] ] 
                     np.savetxt(align_mat_path, align_mat)
@@ -246,8 +276,9 @@ def prepare_config_files(argv):
                 print(f"Warning: incompatible parameters found for {asl} - skipping")
                 print(e)
                 continue
-            except FileNotFoundError: 
-                print(f"Warning: could not find JSON for {asl} - skipping")
+            except FileNotFoundError as e: 
+                print(f"Warning: missing file for {asl} - skipping")
+                print(e)
                 continue
             except Exception as e: 
                 raise e 
@@ -255,16 +286,20 @@ def prepare_config_files(argv):
     print(f"Wrote {file_count} configuration files in {op.join(bids_root, 'derivatives')}")
 
 
-def walk_asl_dirs(bids_root, datatype):
+def walk_modality_dirs(bids_root, datatype, modality):
     all_dirs = glob.glob(op.join(bids_root, datatype, '*'))
-    subdirs = [ p for p in all_dirs if re.match('sub-\d*', op.split(p)[1]) ]
+    fltr = re.compile('sub-\d*')
+    subdirs = [ p for p in all_dirs if fltr.match(op.split(p)[1]) ]
+    if not subdirs: 
+        raise RuntimeError(f"Did not find any subjects in {bids_root}")
     for sub in subdirs:
-        for asl_dir, subdirs, files in os.walk(op.join(sub, 'asl')):
+        for asl_dir, subdirs, files in os.walk(op.join(sub, modality)):
             dname = op.split(asl_dir)[1]
             # Exclude oxasl configuration directories 
-            filter = 'sub-\d*.*_oxasl'
-            if (files or subdirs) and not re.match(filter, dname): 
+            fltr = re.compile('sub-\d*.*_oxasl')
+            if (files or subdirs) and not fltr.match(dname): 
                 yield asl_dir
+
 
 def execute_job(exec_dir, config_file):
     os.chdir(exec_dir)
@@ -272,51 +307,78 @@ def execute_job(exec_dir, config_file):
     subprocess.run(cmd, shell=True)
 
 
+def run_fsl_anat(argv):
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--bidsdir', required=True, type=str)
+    parser.add_argument('--cores', default=1, type=int)
+    # parser.add_argument()
+    args = dict(vars(parser.parse_args(argv)))
+    cores = args['cores']
+    bids_root = args['bidsdir']
+
+    jobs = [] 
+    for anat_dir in walk_modality_dirs(bids_root, 'sourcedata', 'anat'):
+        anat = glob.glob(op.join(anat_dir, 'sub-*_T1w.nii*'))
+        if isinstance(anat, list):
+            anat = anat[0]
+
+        stub = op.split(anat)[1]
+        outdir = derivatives_dir(anat_dir)
+        os.makedirs(outdir, exist_ok=True)
+        outname = op.join(outdir, stub[:stub.index('.nii')] + '.anat')
+        jobs.append({'struct': anat, 'out': outname})
+        
+
+    worker = functools.partial(starstarmap, toblerone.fsl_fs_anat)
+    if cores > 1:
+        with multiprocessing.Pool(cores) as p: 
+            p.map(worker, jobs)
+    else: 
+        for job in jobs: 
+            worker(job)
+
+
+def starstarmap(func, arg_dict):
+    return func(**arg_dict)
+
+def __run_oxasl_worker(at_dir, cmd_path):
+    os.chdir(at_dir)
+    cmd = open(cmd_path, 'r').read()
+    return subprocess.run(cmd, shell=True)
+
 
 def run_config_files(argv):
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--bidsdir', required=True, type=str)
+    parser.add_argument('--cores', default=1, type=int)
     args = dict(vars(parser.parse_args(argv)))
-
     bids_root = args['bidsdir']
+    cores = args['cores']
 
     jobs = []  
-    for asl_dir in walk_asl_dirs(bids_root, 'derivatives'): 
+    for derivs_dir in walk_modality_dirs(bids_root, 'derivatives', 'asl'): 
         # Look for the oxasl_directory
-        all_dirs = glob.glob(op.join(asl_dir, 'sub-*_oxasl'))
-        filter = 'sub-\d*.*_oxasl'
-        oxasl_dirs = [ p for p in all_dirs if re.match(filter, op.split(p)[1]) ]
+        all_dirs = glob.glob(op.join(derivs_dir, 'sub-*_oxasl'))
+        fltr = re.compile('sub-\d*.*_oxasl')
+        oxasl_dirs = [ p for p in all_dirs if fltr.match(op.split(p)[1]) ]
         for oxdir in oxasl_dirs:
             config = op.join(oxdir, 'bids_init', 'oxasl_config.txt')
             if not op.exists(config):
                 print(f"Warning: expected to find a configuration file ({config}) in {oxdir}.")
                 continue
             else: 
-                config = op.relpath(config, asl_dir)
-                jobs.append((asl_dir, config))
+                config_path = op.relpath(config, derivs_dir)
+                jobs.append((derivs_dir, config_path))
 
-    for job in jobs: 
-        execute_job(*job)
-
-
-
-
-
-
+    if cores > 1:
+        with multiprocessing.Pool(cores) as p: 
+            p.starmap(__run_oxasl_worker, jobs)
+    else: 
+        for job in jobs: 
+            __run_oxasl_worker(*job)
 
 
-    # x = asl 
-    # key_vals = []
-    # while len(x):  
-    #     ks = 0  
-    #     ke = x.index('-') 
-    #     key = x[ks:ke] 
-    #     vs = ke + 1 
-    #     ve = x.index('_') 
-    #     val = x[vs:ve] 
-    #     key_vals.append((key,val))
-    #     if not x[ve+1:].count('-'): 
-    #         break 
-    #     else: 
-    #         x = x[ve+1:]
+
+

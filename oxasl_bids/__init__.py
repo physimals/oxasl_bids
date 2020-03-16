@@ -1,1 +1,1 @@
-from .oxasl_bids import prepare_config_files, run_config_files
+from .oxasl_bids import prepare_config_files, run_config_files, run_fsl_anat

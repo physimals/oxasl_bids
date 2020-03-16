@@ -2,7 +2,7 @@
 
 import sys 
 
-from . import prepare_config_files, run_config_files
+from . import prepare_config_files, run_config_files, run_fsl_anat
 
 help_string = ("""oxasl_bids: BIDS interface for the oxford_asl pipeline
 
@@ -16,7 +16,9 @@ After having used "prepare", the "run" command will execute the oxford_asl comma
 Run either command without arguments for more information.""")
 
 def main(argv):
-    cmd_dict = {'prepare': prepare_config_files, 'run': run_config_files}
+    cmd_dict = {'prepare': prepare_config_files, 
+                'run': run_config_files, 
+                'fsl_anat': run_fsl_anat }
     if (len(argv)) and (argv[0] in cmd_dict): 
         cmd_dict[argv[0]](argv[1:])
     else: 
