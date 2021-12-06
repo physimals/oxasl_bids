@@ -14,11 +14,10 @@ import subprocess
 import multiprocessing as mp
 import shutil
 
-import nibabel 
-import bids
+import nibabel
 import numpy as np 
-import toblerone
-from scipy.ndimage import affine_transform
+#import toblerone
+#from scipy.ndimage import affine_transform
 
 from . import utils
 from .mappings import map_keys
@@ -41,8 +40,9 @@ def configuration_dir(asl_dir, asl_file):
 
 def oxasl_dir(asl_dir, asl_file):
     stub = asl_file[:asl_file.index('asl.nii')]
-    oxdir = op.join(asl_dir.replace('sourcedata', 'derivatives'),
-        stub + 'oxasl')
+    bids_root = asl_dir[:asl_dir.index("sub-")]
+    bids_subdir = asl_dir[asl_dir.index("sub-"):]
+    oxdir = op.join(bids_root, 'derivatives', bids_subdir, stub + 'oxasl')
     os.makedirs(oxdir, exist_ok=True)
     return oxdir
 
@@ -53,37 +53,42 @@ def derivatives_dir(asl_dir):
 
 def extract_asl_and_calib(asl_dir, asl_file):
     stub = asl_file[:asl_file.index('asl.nii')]
-    ctx_file = op.join(asl_dir, stub + 'ASLContext.tsv')
-    ctx = open(ctx_file).read().split()
-    if 'CBF' in ctx:
-        raise utils.IncompatabilityError("ASLContext contains CBF images")
-    if ('DeltaM' in ctx) and (('Label' in ctx) or ('Control' in ctx)):
-        raise utils.IncompatabilityError("ASL sequence is mixed DeltaM and Control/Label")
+    ctx_file = op.join(asl_dir, stub + 'aslcontext.tsv')
+    with open(ctx_file) as f:
+        ctx = [l.lower().strip() for l in f.readlines()]
+    if ctx[0] != 'volume_type':
+        raise utils.IncompatabilityError("First line in ASL context is not volume_type")
+    ctx = ctx[1:]
+    if 'cbf' in ctx:
+        raise utils.IncompatabilityError("ASL context contains CBF images")
+    if ('deltam' in ctx) and (('label' in ctx) or ('control' in ctx)):
+        raise utils.IncompatabilityError("ASL sequence is mixed deltam and control/label")
 
-    keys = {'Control' : 0,
-            'Control(PErev)': 0,
-            'Label': 1, 
-            'DeltaM': 2,
-            'M0Scan': 3}
+    keys = {'control' : 0,
+            'control(perev)': 0,
+            'label': 1,
+            'deltam': 2,
+            'm0scan': 3}
 
-    indices = np.array([ keys[frame] for frame in ctx ])
-    asl_frames = np.array([ i for i,idx in enumerate(indices) if idx < 3 ])
-    calib_frames = np.array([ i for i,idx in enumerate(indices) if idx == 3 ])
+    frame_codes = np.array([ keys[frame] for frame in ctx ])
+    asl_frames = np.array([ i for i,code in enumerate(frame_codes) if code < 3 ])
+    calib_frames = np.array([ i for i,code in enumerate(frame_codes) if code == 3 ])
     deriv_dir = derivatives_dir(asl_dir)
     js_dict = sidecar_json(asl_dir, asl_file)
 
-    if indices[asl_frames[0]] == 3:
+    if frame_codes[asl_frames[0]] == 2:
         asl_format = 'diff'
-    elif indices[asl_frames[0]] > indices[asl_frames[1]]:
+    elif frame_codes[asl_frames[0]] > frame_codes[asl_frames[1]]:
         asl_format = 'tc'
-    elif indices[asl_frames[0]] < indices[asl_frames[1]]:
+    elif frame_codes[asl_frames[0]] < frame_codes[asl_frames[1]]:
         asl_format = 'ct'
     else: 
         raise RuntimeError("Could not interpret label-control order")
 
-    if calib_frames.size: 
+    if calib_frames.size:
         # Extract and save the ASL and calib frames separately 
-        assert (js_dict['M0'] is True), 'JSON M0 field does not match ASLContext' 
+        if js_dict.get('M0Type', '').lower() != "included":
+            raise utils.IncompatabilityError("JSON M0Type field not set to 'included', but m0scan included aslcontext")
         asl_path = op.join(op.join(asl_dir, asl_file))
         print(f"Extracting M0 from {asl_path}")
         config_dir = configuration_dir(asl_dir, asl_file)
@@ -232,7 +237,7 @@ def prepare_config_files(argv):
         raise RuntimeError("--align must be used with --fsl_anat") 
 
     file_count = 0 
-    for asl_dir in walk_modality_dirs(bids_root, 'sourcedata', 'asl'):
+    for asl_dir in walk_modality_dirs(bids_root, 'perf'):
         asl_niftis = glob.glob(op.join(asl_dir, '*_asl.nii.gz'))
         asl_niftis = [ op.split(p)[1] for p in asl_niftis ]
 
@@ -294,8 +299,10 @@ def prepare_config_files(argv):
     print(f"Wrote {file_count} configuration files in {op.join(bids_root, 'derivatives')}")
 
 
-def walk_modality_dirs(bids_root, datatype, modality):
-    all_dirs = glob.glob(op.join(bids_root, datatype, '*'))
+def walk_modality_dirs(bids_root, modality, datatype_dir=None):
+    if datatype_dir:
+        bids_root = op.join(bids_root, datatype_dir)
+    all_dirs = glob.glob(op.join(bids_root, '*'))
     fltr = re.compile('sub-\d*')
     subdirs = [ p for p in all_dirs if fltr.match(op.split(p)[1]) ]
     if not subdirs: 
@@ -326,7 +333,7 @@ def run_fsl_anat(argv):
     bids_root = args['bidsdir']
 
     jobs = [] 
-    for anat_dir in walk_modality_dirs(bids_root, 'sourcedata', 'anat'):
+    for anat_dir in walk_modality_dirs(bids_root, 'anat'):
         anat = glob.glob(op.join(anat_dir, 'sub-*_T1w.nii*'))
         if isinstance(anat, list):
             anat = anat[0]
@@ -366,7 +373,7 @@ def run_config_files(argv):
     cores = args['cores']
 
     jobs = []  
-    for derivs_dir in walk_modality_dirs(bids_root, 'derivatives', 'asl'): 
+    for derivs_dir in walk_modality_dirs(bids_root, 'perf', datatype_dir="derivatives"):
         # Look for the oxasl_directory
         all_dirs = glob.glob(op.join(derivs_dir, 'sub-*_oxasl'))
         fltr = re.compile('sub-\d*.*_oxasl')
