@@ -88,7 +88,7 @@ def extract_asl_and_calib(asl_dir, asl_file):
     if calib_frames.size:
         # Extract and save the ASL and calib frames separately 
         if js_dict.get('M0Type', '').lower() != "included":
-            raise utils.IncompatabilityError("JSON M0Type field not set to 'included', but m0scan included aslcontext")
+            raise utils.IncompatabilityError("JSON M0Type field not set to 'included', but m0scan in aslcontext")
         asl_path = op.join(op.join(asl_dir, asl_file))
         print(f"Extracting M0 from {asl_path}")
         config_dir = configuration_dir(asl_dir, asl_file)
@@ -106,9 +106,9 @@ def extract_asl_and_calib(asl_dir, asl_file):
 
     else: 
         js_dict = sidecar_json(asl_dir, asl_file)
-        if not isinstance(js_dict['M0'], str): 
-            raise utils.IncompatabilityError("M0 field in JSON must point to separate acquisition")
-        calib_path = op.join(asl_dir, js_dict['M0'])
+        if js_dict.get('M0Type', '').lower() != "separate":
+            raise utils.IncompatabilityError("JSON M0Type field not set to 'separate', but m0scan not in aslcontext")
+        calib_path = op.join(asl_dir, asl_file.replace("asl.nii", "m0scan.nii"))
         if not op.exists(calib_path):
             raise FileNotFoundError(f"Could not find M0: {calib_path}")            
         asl_path = op.join(asl_dir, asl_file)
