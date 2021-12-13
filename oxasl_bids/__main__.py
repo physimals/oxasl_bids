@@ -15,7 +15,8 @@ Common arguments will be added in to each configuration, overriding BIDS-derived
 After having used "prepare", the "run" command will execute the oxford_asl commands 
 Run either command without arguments for more information.""")
 
-def main(argv):
+def main():
+    argv = sys.argv[1:]
     cmd_dict = {'prepare': prepare_config_files, 
                 'run': run_config_files, 
                 'fsl_anat': run_fsl_anat }
@@ -25,5 +26,4 @@ def main(argv):
         print(help_string)
 
 if __name__ == "__main__":
-    argv = sys.argv[1:]
-    main(argv)
+    main()
