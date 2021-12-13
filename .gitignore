@@ -2,3 +2,5 @@
 test.py
 .vscode
 *.pyc
+*.egg-info
+_version.py
