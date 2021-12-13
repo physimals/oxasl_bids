@@ -33,16 +33,15 @@ def sidecar_json(asl_dir, asl_file):
 
 def configuration_dir(asl_dir, asl_file):
     ddir = oxasl_dir(asl_dir, asl_file)
-    cdir = op.join(ddir, 'bids_init')
+    cdir = op.join(ddir, 'config')
     os.makedirs(cdir, exist_ok=True)
     return cdir 
 
 
 def oxasl_dir(asl_dir, asl_file):
-    stub = asl_file[:asl_file.index('asl.nii')]
     bids_root = asl_dir[:asl_dir.index("sub-")]
     bids_subdir = asl_dir[asl_dir.index("sub-"):]
-    oxdir = op.join(bids_root, 'derivatives', bids_subdir, stub + 'oxasl')
+    oxdir = op.join(bids_root, 'derivatives', "oxasl", bids_subdir)
     os.makedirs(oxdir, exist_ok=True)
     return oxdir
 
@@ -52,6 +51,11 @@ def derivatives_dir(asl_dir):
 
 
 def extract_asl_and_calib(asl_dir, asl_file):
+    """
+    Identify the location of the ASL and calibration data
+    and the ASL data order
+    """
+    options = {}
     stub = asl_file[:asl_file.index('asl.nii')]
     ctx_file = op.join(asl_dir, stub + 'aslcontext.tsv')
     with open(ctx_file) as f:
@@ -77,11 +81,11 @@ def extract_asl_and_calib(asl_dir, asl_file):
     js_dict = sidecar_json(asl_dir, asl_file)
 
     if frame_codes[asl_frames[0]] == 2:
-        asl_format = 'diff'
+        options["iaf"] = 'diff'
     elif frame_codes[asl_frames[0]] > frame_codes[asl_frames[1]]:
-        asl_format = 'tc'
+        options["iaf"] = 'tc'
     elif frame_codes[asl_frames[0]] < frame_codes[asl_frames[1]]:
-        asl_format = 'ct'
+        options["iaf"] = 'ct'
     else: 
         raise RuntimeError("Could not interpret label-control order")
 
@@ -89,21 +93,10 @@ def extract_asl_and_calib(asl_dir, asl_file):
         # Extract and save the ASL and calib frames separately 
         if js_dict.get('M0Type', '').lower() != "included":
             raise utils.IncompatabilityError("JSON M0Type field not set to 'included', but m0scan in aslcontext")
-        asl_path = op.join(op.join(asl_dir, asl_file))
+        asl_path = op.join(asl_dir, asl_file)
         print(f"Extracting M0 from {asl_path}")
-        config_dir = configuration_dir(asl_dir, asl_file)
-        img = nibabel.load(asl_path)
-        series = img.get_fdata()
-        asl_path = op.join(config_dir, stub + 'asl_no_M0.nii.gz')
-        calib_path = op.join(config_dir, stub + 'M0.nii.gz')
-        nii_class = type(img)
-        asl_img = nii_class(series[...,asl_frames], img.affine,
-            header=img.header)
-        calib_img = nii_class(series[...,calib_frames], img.affine,
-            header=img.header)
-        nibabel.save(asl_img, asl_path)
-        nibabel.save(calib_img, calib_path)
-
+        options["asldata"] = (asl_path, asl_frames)
+        options["calib"] = (asl_path, calib_frames)
     else: 
         js_dict = sidecar_json(asl_dir, asl_file)
         if js_dict.get('M0Type', '').lower() != "separate":
@@ -111,48 +104,62 @@ def extract_asl_and_calib(asl_dir, asl_file):
         calib_path = op.join(asl_dir, asl_file.replace("asl.nii", "m0scan.nii"))
         if not op.exists(calib_path):
             raise FileNotFoundError(f"Could not find M0: {calib_path}")            
-        asl_path = op.join(asl_dir, asl_file)
+        options["calib"] = (calib_path, None)
+        options["asldata"] = (op.join(asl_dir, asl_file), None)
 
-    assert op.exists(asl_path)
-    assert op.exists(calib_path)
-    asl_path = op.relpath(asl_path, deriv_dir)
-    calib_path = op.relpath(calib_path, deriv_dir)
-    return asl_path, asl_format, calib_path
+    return options
 
 
-def json_path(asl_dir, asl_file):
-    stub = op.split(asl_file)[1]
-    stub = stub[:stub.index('.nii')]
-    return op.join(asl_dir, stub + '.json')
+def json_path(niifile):
+    dir, fname = op.split(niifile)
+    stub = fname[:fname.index('.nii')]
+    return op.join(dir, stub + '.json')
 
 def make_oxasl_config(asl_dir, asl_file):
+    """
+    Build configuration options from JSON metadata
+    and ASL context file
+    """
     # Look for sidecar JSON
-    asl_path, asl_format, calib_path = extract_asl_and_calib(asl_dir, asl_file)
-    jsfile = json_path(asl_dir, asl_file)
-    oxasl_args = map_keys(jsfile)
-    oxasl_args['asldata'] = asl_path
-    oxasl_args['calib'] = calib_path
-    oxasl_args['iaf'] = asl_format
+    options = extract_asl_and_calib(asl_dir, asl_file)
+    options.update(map_keys(json_path(options["asldata"][0]), "asl"))
+    options.update(map_keys(json_path(options["calib"][0]), "calib"))
 
-    # Post-processing (remove mutually exclusive keys)
-    if oxasl_args.get('casl'):
-        oxasl_args.pop('tis')
-    else: 
-        oxasl_args.pop('plds')
+    # Find out what field we're using for timings based on whether it's PCASL or PASL
+    if options.get('casl', False):
+        ttype, otype = 'plds', 'tis'
+    else:
+        ttype, otype = 'tis', 'plds'
 
-    return oxasl_args
+    # Remove unused timings field and make sure it is a list
+    options.pop(otype, None)
+    if isinstance(options[ttype], (int, float)):
+        options[ttype] = [options[ttype]]
+    if options.get('iaf', 'diff') != 'diff':
+        # With TC pairs the timings will be repeated. We don't care about the order since
+        # no valid ASL sequence will have different timings for tag and control.
+        options[ttype] = [options[ttype][idx] for idx in range(0, len(options[ttype]), 2)]
+    
+    return options
 
-def dump_to_string(arg_dict, outputdir):
+def dump_to_string(arg_dict, outputdir=""):
     txt = 'oxasl '
     for key,val in arg_dict.items(): 
-        if val is True: 
-            txt += f"--{key} "
+        if isinstance(val, list):
+            val = ",".join([str(v) for v in val])
+
+        if isinstance(val, tuple):
+            if val[1] is None:
+                val = op.abspath(val[0])
+
+        if isinstance(val, bool):
+            if val: 
+                txt += f"--{key} "
         elif val is not None: 
-            if isinstance(val, str) and op.exists(val):
-                val = op.relpath(val, outputdir)
+            #if isinstance(val, str) and op.exists(val):
+            #    val = op.relpath(val, outputdir)
             txt += f"--{key}={val} "
     return txt 
-
 
 def guarded_merge(common, specific):
     merged = copy.deepcopy(specific)
@@ -218,7 +225,7 @@ def wipe_dir(path):
 def prepare_config_files(argv): 
     parser = argparse.ArgumentParser()
     parser.add_argument('--bidsdir', required=True, type=str)
-    parser.add_argument('--common_args', required=True, 
+    parser.add_argument('--common_args', required=False, 
         type=str, nargs=argparse.REMAINDER)
     parser.add_argument('--align', type=str)
     parser.add_argument('--overwrite', action='store_true')
@@ -245,7 +252,10 @@ def prepare_config_files(argv):
             # Write back into corresponding position in derivs directory
             try:                 
                 oxasl_args = make_oxasl_config(asl_dir, asl)
-                oxasl_args = guarded_merge(common_args, oxasl_args)
+                #oxasl_args = guarded_merge(common_args, oxasl_args)
+                opts = dump_to_string(oxasl_args)
+                print(opts)
+                sys.exit(1)
                 oxdir = oxasl_dir(asl_dir, asl)
                 if overwrite: 
                     wipe_dir(oxdir)
@@ -379,7 +389,7 @@ def run_config_files(argv):
         fltr = re.compile('sub-\d*.*_oxasl')
         oxasl_dirs = [ p for p in all_dirs if fltr.match(op.split(p)[1]) ]
         for oxdir in oxasl_dirs:
-            config = op.join(oxdir, 'bids_init', 'oxasl_config.txt')
+            config = op.join(oxdir, 'config', 'oxasl_config.txt')
             if not op.exists(config):
                 print(f"Warning: expected to find a configuration file ({config}) in {oxdir}.")
                 continue

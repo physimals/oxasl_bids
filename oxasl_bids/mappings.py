@@ -2,88 +2,97 @@ import os.path as op
 import json 
 import glob
 
-def interpret_labeling_type(js_dict):
-    if (js_dict['LabelingType'] != 'PASL'): 
-        return True 
-    else: 
-        return None 
+def is_casl(js_dict, oxasl_dict):
+    label_type = js_dict.get('LabelingType', js_dict['ArterialSpinLabelingType'])
+    if label_type != 'PASL': 
+        return True
 
-
-def interpret_bolus(js_dict):
-    if 'PASL' in js_dict:
+def calc_bolus(js_dict, oxasl_dict):
+    if not oxasl_dict.get("casl", False) and "BolusCutOffTImingSequence" in js_dict:
         return js_dict['BolusCutOffTimingSequence']
-    elif ('PCASL' in js_dict) or ('CASL' in js_dict):
+    elif 'LabelingDuration' in js_dict:
         return js_dict['LabelingDuration']
 
+def calc_slicedt(js_dict, oxasl_dict):
+    if "SliceTiming" in js_dict:
+        times = js_dict['SliceTiming']
+        dts = [ pair[0]-pair[1] for pair in zip(times[1:], times[:-1]) ] 
+        return sum(dts) / len(dts)
+    else:
+        return None
 
-def calc_slicedt(js_dict):
-    times = js_dict['SliceTiming']
-    dts = [ pair[0]-pair[1] for pair in zip(times[1:], times[:-1]) ] 
-    return sum(dts) / len(dts)
-
-
-def calc_effective_echo_time(js_dict):
+def calc_effective_echo_time(js_dict, oxasl_dict):
     # Only run this if effective echo not given 
     pass
 
-def interpret_pedir(js_dict):
+def interpret_pedir(js_dict, oxasl_dict):
     pedir = js_dict['PhaseEncodingDirection']
     if pedir.count('-'):
         pedir = '-' + pedir.strip('-')
     return pedir
 
-def interpret_pedir(js_dict):
+def interpret_pedir(js_dict, oxasl_dict):
     pedir = js_dict['PhaseEncodingDirection']
     if pedir.count('-'):
         pedir = '-' + pedir.strip('-')
     return pedir
 
-in_keys = [
+in_keys = {
 
-    # ASL options
-    ('order', None),
-    ('tis', 'InitialPostLabelDelay'),
-    ('tes', 'EchoTime'),
-    ('plds', 'InitialPostLabelDelay'),
-    ('ntis', None),
-    ('nplds', None),
-    ('rpts', None),
-    ('nphases', None),
-    ('nenc', None),
-    ('casl', interpret_labeling_type),
-    ('bolus', interpret_bolus),
-    ('slicedt', calc_slicedt),
-    ('sliceband', None),
-    ('artsupp', 'VascularCrushing'),
+    "asl" : [
+        # ASL options
+        ('order', None),
+        ('tis', 'InitialPostLabelDelay'),
+        ('tis', 'PostLabelingDelay'),
+        ('plds', 'InitialPostLabelDelay'),
+        ('plds', 'PostLabelingDelay'),
+        ('tes', 'EchoTime'),
+        ('ntis', None),
+        ('nplds', None),
+        ('rpts', None),
+        ('nphases', None),
+        ('nenc', None),
+        ('casl', is_casl),
+        ('bolus', calc_bolus),
+        ('slicedt', calc_slicedt),
+        ('sliceband', None),
+        ('artsupp', 'VascularCrushing'),
+    ],
 
-    # Structural options
-    ('struc', None), 
-    ('fsl_anat', None), 
+    "struc" : [
+        # Structural options
+        ('struc', None), 
+        ('fsl_anat', None), 
+    ],
 
-    # Calibration options 
-    ('calib-alpha', None),
-    ('tr', None),
-    ('te', 'EchoTime'),
+    "calib" : [
+        # Calibration options 
+        ('calib-alpha', None),
+        ('tr', None),
+        ('te', 'EchoTime'),
+    ],
 
-    # Distortion correction options
-    ('echospacing', 'EffectiveEchoSpacing'),
-    ('pedir', interpret_pedir)
+    "cblip" : [
+        # Distortion correction options
+        ('echospacing', 'EffectiveEchoSpacing'),
+        ('pedir', interpret_pedir),
+    ],
+}
 
-]
-
-def map_keys(js_path):
-    asldir = op.split(js_path)[0]
-    js_dict = json.load(open(js_path, 'r'))
+def map_keys(js_path, ftype):
+    with open(js_path, "r") as f:
+        js_dict = json.load(f)
     oxasl_dict = {} 
 
-    for (key, mapper) in in_keys:
+    for (oxasl_key, json_key) in in_keys[ftype]:
         val = None 
-        if type(mapper) is str:
-            val = js_dict.get(mapper)
-        elif callable(mapper) and (key in js_dict):
-            val = mapper(js_dict)
+        if type(json_key) is str:
+            val = js_dict.get(json_key)
+        elif callable(json_key):
+            print("call, ", json_key)
+            val = json_key(js_dict, oxasl_dict)
 
-        oxasl_dict[key] = val
+        oxasl_dict[oxasl_key] = val
 
     return oxasl_dict
 
