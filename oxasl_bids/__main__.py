@@ -1,8 +1,9 @@
 #! /usr/bin/env python3
 
+import argparse
 import sys 
 
-from . import prepare_config_files, run_config_files, run_fsl_anat
+from .oxasl_bids import get_oxasl_configs
 
 help_string = ("""oxasl_bids: BIDS interface for the oxford_asl pipeline
 
@@ -16,14 +17,28 @@ After having used "prepare", the "run" command will execute the oxford_asl comma
 Run either command without arguments for more information.""")
 
 def main():
-    argv = sys.argv[1:]
-    cmd_dict = {'prepare': prepare_config_files, 
-                'run': run_config_files, 
-                'fsl_anat': run_fsl_anat }
-    if (len(argv)) and (argv[0] in cmd_dict): 
-        cmd_dict[argv[0]](argv[1:])
-    else: 
-        print(help_string)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--bidsdir', required=True, type=str)
+    #parser.add_argument('--common_args', required=False, 
+    #    type=str, nargs=argparse.REMAINDER)
+    #parser.add_argument('--align', type=str)
+    #parser.add_argument('--overwrite', action='store_true')
+    #parser.add_argument('--fsl_anat', action='store_true')
 
+    args = dict(vars(parser.parse_args()))
+    bids_root = args.pop('bidsdir')
+    get_oxasl_configs(bids_root)
+    
+    #align_spc = args.pop('align')
+    #fsl_anat = args.pop('fsl_anat')
+    #overwrite = args.pop('overwrite')
+    #common_args = args['common_args']
+
+    #if align_spc and (align_spc != 'anat'):
+    #    raise RuntimeError("Not implemented yet")
+    #if align_spc and (not fsl_anat):
+    #    raise RuntimeError("--align must be used with --fsl_anat") 
+
+    
 if __name__ == "__main__":
     main()

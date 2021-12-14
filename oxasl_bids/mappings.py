@@ -59,7 +59,7 @@ in_keys = {
         ('artsupp', 'VascularCrushing'),
     ],
 
-    "struc" : [
+    "struct" : [
         # Structural options
         ('struc', None), 
         ('fsl_anat', None), 
@@ -68,7 +68,8 @@ in_keys = {
     "calib" : [
         # Calibration options 
         ('calib-alpha', None),
-        ('tr', None),
+        ('tr', "RepetitionTimePreparation"),
+        ('tr', "RepetitionTime"),
         ('te', 'EchoTime'),
     ],
 
@@ -79,22 +80,31 @@ in_keys = {
     ],
 }
 
-def map_keys(js_path, ftype):
-    with open(js_path, "r") as f:
-        js_dict = json.load(f)
-    oxasl_dict = {} 
+def get_oxasl_config_from_metadata(json_metadata, filetype):
+    """
+    Get the relevant oxasl options from JSON metadata
+    
+    :param json_filename: Path to JSON metadata file
+    :param filetype: Type of file metadata describes: asl, calib, cblip, struct
+    """
+    #print("mapping keys for %s" % filetype)
+    oxasl_config = {} 
+    #with open(json_filename, "r") as f:
+    #    json_metadata = json.load(f)
 
-    for (oxasl_key, json_key) in in_keys[ftype]:
-        val = None 
-        if type(json_key) is str:
-            val = js_dict.get(json_key)
+    for oxasl_key, json_key in in_keys[filetype]:
+        #print("Looking for %s->%s" % (json_key, oxasl_key))
+        val = None
+        if type(json_key) is str and json_key in json_metadata:
+            #print("json dict? %s" % json_metadata.get(json_key, None))
+            val = json_metadata.get(json_key)
         elif callable(json_key):
-            print("call, ", json_key)
-            val = json_key(js_dict, oxasl_dict)
+            val = json_key(json_metadata, oxasl_config)
 
-        oxasl_dict[oxasl_key] = val
+        if val is not None:
+            oxasl_config[oxasl_key] = val
 
-    return oxasl_dict
+    return oxasl_config
 
 # def interpret_m0(js_dict):
 #     try: 
