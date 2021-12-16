@@ -1,19 +1,23 @@
-import os.path as op 
-import json 
-import glob
+"""
+OXASL_BIDS: Defines mapping of BIDS JSON metadata keys to oxasl options
+"""
 
-def is_casl(js_dict, oxasl_dict):
+import logging
+
+LOG = logging.getLogger(__name__)
+
+def _is_casl(js_dict, oxasl_dict):
     label_type = js_dict.get('LabelingType', js_dict['ArterialSpinLabelingType'])
     if label_type != 'PASL': 
         return True
 
-def calc_bolus(js_dict, oxasl_dict):
+def _calc_bolus(js_dict, oxasl_dict):
     if not oxasl_dict.get("casl", False) and "BolusCutOffTImingSequence" in js_dict:
         return js_dict['BolusCutOffTimingSequence']
     elif 'LabelingDuration' in js_dict:
         return js_dict['LabelingDuration']
 
-def calc_slicedt(js_dict, oxasl_dict):
+def _calc_slicedt(js_dict, oxasl_dict):
     if "SliceTiming" in js_dict:
         times = js_dict['SliceTiming']
         dts = [ pair[0]-pair[1] for pair in zip(times[1:], times[:-1]) ] 
@@ -21,23 +25,15 @@ def calc_slicedt(js_dict, oxasl_dict):
     else:
         return None
 
-def calc_effective_echo_time(js_dict, oxasl_dict):
-    # Only run this if effective echo not given 
-    pass
-
-def interpret_pedir(js_dict, oxasl_dict):
+def _interpret_pedir(js_dict, oxasl_dict):
+    dir_map = {"i" : "x", "j" : "y", "k" : "z"}
     pedir = js_dict['PhaseEncodingDirection']
+    oxasl_pedir = dir_map[pedir.strip("-")]
     if pedir.count('-'):
-        pedir = '-' + pedir.strip('-')
-    return pedir
+        oxasl_pedir = '-' + oxasl_pedir
+    return oxasl_pedir
 
-def interpret_pedir(js_dict, oxasl_dict):
-    pedir = js_dict['PhaseEncodingDirection']
-    if pedir.count('-'):
-        pedir = '-' + pedir.strip('-')
-    return pedir
-
-in_keys = {
+OXASL_JSON_MAPPINGS = {
 
     "asl" : [
         # ASL options
@@ -52,9 +48,9 @@ in_keys = {
         ('rpts', None),
         ('nphases', None),
         ('nenc', None),
-        ('casl', is_casl),
-        ('bolus', calc_bolus),
-        ('slicedt', calc_slicedt),
+        ('casl', _is_casl),
+        ('bolus', _calc_bolus),
+        ('slicedt', _calc_slicedt),
         ('sliceband', None),
         ('artsupp', 'VascularCrushing'),
     ],
@@ -75,8 +71,9 @@ in_keys = {
 
     "cblip" : [
         # Distortion correction options
-        ('echospacing', 'EffectiveEchoSpacing'),
-        ('pedir', interpret_pedir),
+        ('echospacing', "EffectiveEchoSpacing"),
+        ('totalreadouttime', "TotalReadoutTime"),
+        ('pedir', _interpret_pedir),
     ],
 }
 
@@ -87,12 +84,11 @@ def get_oxasl_config_from_metadata(json_metadata, filetype):
     :param json_filename: Path to JSON metadata file
     :param filetype: Type of file metadata describes: asl, calib, cblip, struct
     """
-    #print("mapping keys for %s" % filetype)
     oxasl_config = {} 
     #with open(json_filename, "r") as f:
     #    json_metadata = json.load(f)
 
-    for oxasl_key, json_key in in_keys[filetype]:
+    for oxasl_key, json_key in OXASL_JSON_MAPPINGS[filetype]:
         #print("Looking for %s->%s" % (json_key, oxasl_key))
         val = None
         if type(json_key) is str and json_key in json_metadata:
@@ -105,22 +101,3 @@ def get_oxasl_config_from_metadata(json_metadata, filetype):
             oxasl_config[oxasl_key] = val
 
     return oxasl_config
-
-# def interpret_m0(js_dict):
-#     try: 
-#         M0 = js_dict['M0']
-#     except KeyError: 
-#         try:
-#             M0 = js_dict['MZero']
-#         except KeyError: 
-#             raise RuntimeError("Could not find M0 / MZero field")
-
-#     if isinstance(M0, float) or isinstance(M0, int):
-#         raise RuntimeError("Only calibration with M0 image currently supported")
-#     elif isinstance(M0, str):
-#         return M0
-#     elif isinstance(M0, bool):
-#         # FIXME: need to extract the M0 volume from within the ASL timeseries
-#         raise RuntimeError("Not implemented yet")
-#     else: 
-#         raise RuntimeError("Could not interpret M0")

@@ -1,3 +1,6 @@
+"""
+OXASL_BIDS: Miscellaneous utilities
+"""
 import warnings
 
 import nibabel

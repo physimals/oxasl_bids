@@ -4,15 +4,13 @@ Github module
 """
 import os
 
-from oxasl_bids.oxasl_bids import get_oxasl_configs
+from oxasl_bids.oxasl_bids import oxasl_config_from_bids
 
 EXAMPLES_DIR = "/home/martin/code/thirdparty/bids-examples"
 
 EXAMPLES = {
     "asl001" : {
-        # A pre-subtracted PCASL single PLD acquisition
-        # with embedded M0 in first volume
-        # FIXME structural image
+        # pre-subtracted PCASL single PLD with embedded M0 in first volume
         "asldata" : ("perf/sub-Sub103_asl.nii.gz", 1),
         "iaf" : "diff",
         "tes" : 0.010528,
@@ -22,11 +20,10 @@ EXAMPLES = {
         "calib" : ("perf/sub-Sub103_asl.nii.gz", 0),
         "tr" : 4.886,
         "te" : 0.010528,
-        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None)
+        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None),
     },
     "asl002" : {
         # PCASL single PLD CT pairs 2D acquisition with separate M0
-        # FIXME structural image
         "iaf" : "ct",
         "tes" : 0.015,
         "casl" : True,
@@ -35,20 +32,20 @@ EXAMPLES = {
         "slicedt" : 0.0385,
         "asldata" : ("perf/sub-Sub103_asl.nii.gz", None),
         "calib" : ("perf/sub-Sub103_m0scan.nii.gz", None),
+        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None),
     },
     "asl003" : {
         # Multi-PLD PASL TC pairs with separate M0
-        # FIXME structural image
         "iaf" : "tc",
         "tes" : 0.01192,
         "tis" : [0.3,0.6,0.9,1.2,1.5,1.8,2.1,2.4,2.7,3],
         "asldata" : ("perf/sub-Sub1_asl.nii.gz", None),
         "calib" : ("perf/sub-Sub1_m0scan.nii.gz", None),
+        "struct" : ("anat/sub-Sub1_T1w.nii.gz", None),
     },
     "asl004" : {
         # 48 TC pairs 2D acquisition multi PLD with 8 repeats per PLD with separate M0
         # Note we do not handle repeats at present
-        # FIXME fieldmap, structural image
         "iaf" : "tc",
         "slicedt" : 0.0452,
         "bolus" : 1.4,
@@ -61,21 +58,23 @@ EXAMPLES = {
                   1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
         "asldata" : ("perf/sub-Sub1_asl.nii.gz", None),
         "calib" : ("perf/sub-Sub1_m0scan.nii.gz", None),
+        "cblip" : ("fmap/sub-Sub1_dir-pa_m0scan.nii.gz", None),
+        "echospacing" : 0.00095,
+        "pedir" : "y",
+        "struct" : ("anat/sub-Sub1_T1w.nii.gz", None),
     },
     "asl005" : {
         # 8 CT pairs single PLD PCASL separate M0
-        # FIXME structural image
         "iaf" : "ct",
         "bolus" : 1.8,
         "plds" : 2.0,
         "asldata" : ("perf/sub-Sub103_asl.nii.gz", None),
         "calib" : ("perf/sub-Sub103_m0scan.nii.gz", None),
+        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None),
     },
 }
 
 def check_matches(config, expected_config):
-    print(config)
-    print(expected_config)
     for key, value in expected_config.items():
         actual_value = config[key]
         if isinstance(actual_value, list) and len(actual_value) == 1:
@@ -97,7 +96,7 @@ def check_matches(config, expected_config):
 def check_bids_example(subdir):
     expected_config = EXAMPLES[subdir]
     bids_root = os.path.join(EXAMPLES_DIR, subdir)
-    configs = get_oxasl_configs(bids_root)
+    configs = oxasl_config_from_bids(bids_root)
     assert(len(configs) == 1)
     check_matches(configs[0], expected_config)
 
