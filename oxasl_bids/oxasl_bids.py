@@ -19,7 +19,7 @@ def get_command_line(options, prog="oxasl", extra_args=[]):
     """
     :param options: Dictionary of options derived from BIDS
 
-    :return: String suitable to pass to oxasl or oxford_asl
+    :return: Command string to run oxasl or oxford_asl
     """
     txt = prog + ' '
     for key,val in options.items():
@@ -37,16 +37,10 @@ def get_command_line(options, prog="oxasl", extra_args=[]):
         if isinstance(val, list):
             val = ",".join([str(v) for v in val])
 
-        if isinstance(val, tuple):
-            if val[1] is None:
-                val = op.abspath(val[0])
-
         if isinstance(val, bool):
             if val: 
                 txt += f"{key} "
-        elif val is not None: 
-            #if isinstance(val, str) and op.exists(val):
-            #    val = op.relpath(val, outputdir)
+        elif val is not None:
             txt += f"{key} {val} "
 
     txt += " ".join(extra_args)
@@ -161,23 +155,8 @@ def _get_cblip_config(m0_file):
     ret = {}
     if m0_file.entities.get("datatype", None) == "fmap":
         ret["cblip"] = op.abspath(m0_file.path)
-        ret.update(get_oxasl_config_from_metadata(m0_file.get_metadata(), "cblip"))
-        if "totalreadouttime" in ret:
-            # We need the effective echo spacing instead
-            readouttime = ret.pop("totalreadouttime")
-            pedir = ret.get("pedir", None)
-            if not pedir:
-                LOG.warn("Found total readout time for cblip image but no PE dir - cannot calculate effective echo spacing")
-            else:
-                img_dims = m0_file.get_image().shape
-                if "x" in pedir:
-                    size = img_dims[0]
-                elif "y" in pedir:
-                    size = img_dims[1]
-                elif "z" in pedir:
-                    size = img_dims[2]
-                # FIXME what if pedir invalid
-                ret["echospacing"] = readouttime / (size-1)
+        ret.update(get_oxasl_config_from_metadata(m0_file.get_metadata(), "cblip", m0_file.get_image().shape))
+
     return ret
 
 def _get_oxasl_config(asl_file, sess_files):
@@ -199,21 +178,6 @@ def _get_oxasl_config(asl_file, sess_files):
             options.update(_get_calib_config(calib_file))
         options.update(_get_cblip_config(calib_file))
 
-    # Find out what field we're using for timings based on whether it's PCASL or PASL
-    if options.get('casl', False):
-        ttype, otype = 'plds', 'tis'
-    else:
-        ttype, otype = 'tis', 'plds'
-
-    # Remove unused timings field and make sure it is a list
-    options.pop(otype, None)
-    if isinstance(options[ttype], (int, float)):
-        options[ttype] = [options[ttype]]
-    if options.get('iaf', 'diff') != 'diff':
-        # With TC pairs the timings will be repeated. We don't care about the order since
-        # no valid ASL sequence will have different timings for tag and control.
-        options[ttype] = [options[ttype][idx] for idx in range(0, len(options[ttype]), 2)]
-    
     return options
 
 def get_bids_asl_files(bids_root):

@@ -1,11 +1,15 @@
 #! /usr/bin/env python3
 
 import argparse
+import json
 import logging
 import os
 import sys
 
+import nibabel as nib
+
 from .oxasl_bids import oxasl_config_from_bids, get_command_line
+from .mappings import get_oxasl_config_from_metadata
 
 help_string = ("""oxasl_bids: BIDS interface for the oxford_asl pipeline
 
@@ -20,11 +24,16 @@ Run either command without arguments for more information.""")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bidsdir', required=True, type=str)
-    parser.add_argument('--pipeline', choices=["oxasl", "oxford_asl"], default="oxford_asl")
-    parser.add_argument('--run-fslanat', action='store_true', help="Include commands to run FSL_ANAT on structural images")
-    parser.add_argument('--debug', action='store_true', help="Enable debug logging")
-
+    parser.add_argument('command', help="Command to run", choices=["script", "args"])
+    parser.add_argument('--pipeline', help="Target pipeline", choices=["oxasl", "oxford_asl"], default="oxford_asl")
+    parser.add_argument('--debug', help="Enable debug logging", action='store_true')
+    group = parser.add_argument_group('Script mode options')
+    group.add_argument('--bidsdir', help="Path to BIDS data set")
+    group.add_argument('--run-fslanat', help="Include commands to run FSL_ANAT on structural images", action='store_true')
+    group = parser.add_argument_group('Args mode options')
+    group.add_argument('--img', help="Path to image file with matching JSON sidecar")
+    group.add_argument('--img-type', help="Image type", choices=["asl", "calib", "cblip"])
+    
     args, remainder = parser.parse_known_args()
     
     if args.debug:
@@ -38,6 +47,12 @@ def main():
     handler.setFormatter(formatter)
     logging.getLogger().addHandler(handler)
 
+    if args.command == "script":
+        do_script(args, remainder)
+    elif args.command == "args":
+        do_args(args, remainder)
+
+def do_script(args, remainder):
     fsl_anat_calls = []
     for config in oxasl_config_from_bids(args.bidsdir):
         if args.run_fslanat and "struct" in config:
@@ -48,6 +63,15 @@ def main():
                 print("fsl_anat -i %s\n" % struct_data)
                 fsl_anat_calls.append(struct_data)
         print(get_command_line(config, prog=args.pipeline, extra_args=remainder) + "\n")
+
+def do_args(args, remainder):
+    img_shape = nib.load(args.img).shape
+    json_filename = args.img[:args.img.index(".nii")] + ".json"
+    with open(json_filename, "r") as f:
+        json_metadata = json.load(f)
+
+    options = get_oxasl_config_from_metadata(json_metadata, args.img_type, img_shape)
+    print(get_command_line(options, prog="", extra_args=remainder))
 
 if __name__ == "__main__":
     main()
