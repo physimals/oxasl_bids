@@ -23,7 +23,7 @@ def get_command_line(options, prog="oxasl", extra_args=[]):
     """
     txt = prog + ' '
     for key,val in options.items():
-        if key == "asldata":
+        if key == "asl":
             key = "-i"
         elif key == "calib":
             key = "-c"
@@ -76,7 +76,7 @@ def _get_asl_config(asl_file):
     Identify the location of the ASL and calibration data
     and the ASL data order
     """
-    options = {"asldata" : op.abspath(asl_file.path)}
+    options = {"asl" : op.abspath(asl_file.path)}
     options.update(get_oxasl_config_from_metadata(asl_file.get_metadata(), "asl"))
     metadata = asl_file.get_metadata()
 
@@ -130,7 +130,7 @@ def _get_asl_config(asl_file):
         LOG.debug(f"Extracting M0 from {asl_file.filename}")
         options["calib"] = op.abspath(asl_file.path)
         options["calib_volumes"] = calib_frames
-        options["asldata_volumes"] = asl_frames
+        options["asl_volumes"] = asl_frames
         options.update(get_oxasl_config_from_metadata(asl_file.get_metadata(), "calib"))
     else: 
         # No sign of m0scan volumes in ASL context - check M0 type is separate

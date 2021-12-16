@@ -70,7 +70,8 @@ def do_args(args, remainder):
     with open(json_filename, "r") as f:
         json_metadata = json.load(f)
 
-    options = get_oxasl_config_from_metadata(json_metadata, args.img_type, img_shape)
+    options = {args.img_type : args.img}
+    options.update(get_oxasl_config_from_metadata(json_metadata, args.img_type, img_shape))
     print(get_command_line(options, prog="", extra_args=remainder))
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """
-OXASL_BIDS: Defines mapping of BIDS JSON metadata keys to oxasl options
+OXASL_BIDS: Defines mapping of BIDS metadata keys to oxasl options
 """
 
 import logging
@@ -31,7 +31,7 @@ def _interpret_pedir(js_dict, oxasl_dict):
         oxasl_pedir = '-' + oxasl_pedir
     return oxasl_pedir
 
-def _postproc_asl(json_metadata, options):
+def _postproc_asl(metadata, options):
     # Find out what field we're using for timings based on whether it's PCASL or PASL
     if options.get('casl', False):
         ttype, otype = 'plds', 'tis'
@@ -47,7 +47,7 @@ def _postproc_asl(json_metadata, options):
         # no valid ASL sequence will have different timings for tag and control.
         options[ttype] = [options[ttype][idx] for idx in range(0, len(options[ttype]), 2)]
 
-def _postproc_cblip(json_metadata, options):
+def _postproc_cblip(metadata, options):
     if "totalreadouttime" in options:
         # We need the effective echo spacing instead
         readouttime = options.pop("totalreadouttime")
@@ -55,7 +55,7 @@ def _postproc_cblip(json_metadata, options):
         if not pedir:
             LOG.warn("Found total readout time for cblip image but no PE dir - cannot calculate effective echo spacing")
         else:
-            img_dims = json_metadata["img_shape"]
+            img_dims = metadata["img_shape"]
             if "x" in pedir:
                 size = img_dims[0]
             elif "y" in pedir:
@@ -65,7 +65,7 @@ def _postproc_cblip(json_metadata, options):
             # FIXME what if pedir invalid
             options["echospacing"] = readouttime / (size-1)
 
-OXASL_JSON_MAPPINGS = {
+METADATA_MAPPINGS = {
 
     "asl" : [
         # ASL options
@@ -111,25 +111,23 @@ OXASL_JSON_MAPPINGS = {
     ],
 }
 
-def get_oxasl_config_from_metadata(json_metadata, filetype, img_shape=None):
+def get_oxasl_config_from_metadata(metadata, filetype, img_shape=None):
     """
-    Get the relevant oxasl options from JSON metadata
+    Get the relevant oxasl options from metadata
     
-    :param json_filename: Path to JSON metadata file
+    :param metadata: Metadata dictionary
     :param filetype: Type of file metadata describes: asl, calib, cblip, struct
     """
     oxasl_config = {}
-    json_metadata = dict(json_metadata)
-    json_metadata.update({"img_shape" : img_shape})
+    metadata = dict(metadata)
+    metadata.update({"img_shape" : img_shape})
 
-    for oxasl_key, json_key in OXASL_JSON_MAPPINGS[filetype]:
-        #print("Looking for %s->%s" % (json_key, oxasl_key))
+    for oxasl_key, md_key in METADATA_MAPPINGS[filetype]:
         val = None
-        if type(json_key) is str and json_key in json_metadata:
-            #print("json dict? %s" % json_metadata.get(json_key, None))
-            val = json_metadata.get(json_key)
-        elif callable(json_key):
-            val = json_key(json_metadata, oxasl_config)
+        if type(md_key) is str and md_key in metadata:
+            val = metadata.get(md_key)
+        elif callable(md_key):
+            val = md_key(metadata, oxasl_config)
 
         if val is not None:
             oxasl_config[oxasl_key] = val
