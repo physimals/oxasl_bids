@@ -5,8 +5,8 @@ import os.path as op
 import os
 import copy
 import logging
+import shutil
 
-import nibabel
 import numpy as np
 import bids
 
@@ -228,6 +228,64 @@ def oxasl_config_from_bids(bids_root, common_options=None):
                 configs.append(bids_options)
     return configs
 
+def get_fslanat_command(config):
+    struct_data = config.pop("struct")
+    config["fslanat"] = os.path.basename(struct_data[:struct_data.index(".nii")]) + ".anat"
+    return "fsl_anat -i %s\n" % struct_data
+
+OXASL_OUTPUT_MAPPING = [
+    # FIXME .nii.gz extension?
+    ("native_space/perfusion_calib.nii.gz", "_CBFmap.nii.gz"),
+    ("native_space/aCBV_calib.nii.gz", "aCBVmap.nii.gz"),
+    ("native_space/arrival.nii.gz", "ATTmap.nii.gz"),
+    ("native_space/perfusion_var_calib.nii.gz", "CBFvar.nii.gz"),
+    ("native_space/aCBV_var_calib.nii.gz", "aCBVvar.nii.gz"),
+    ("native_space/arrival_var.nii.gz", "ATTvar.nii.gz"),
+    ("native_space/mask.nii.gz", "mask.nii.gz"),
+    # FIXME normalised / relative CBF, sensitivity map, WM/GM masks, 
+    # cortical/cerebral maps
+    # Transformation matrices
+    # GM/WM mean values
+]
+
+def copy_bids_dataset(bidsdir, output_dir, subject=None, session=None):
+    raise NotImplementedError()
+
+def bids_filename(suffix, subject, session):
+    if session:
+        return "sub-%s_ses-%s_%s" % (subject, session, suffix)
+    else:
+        return "sub-%s_%s" % (subject, suffix)
+
+def oxford_asl_to_bids(oxford_asl_dir, bidsdir, subject, session=None, bids_output_dir=None):
+    """
+    Convert oxford_asl output to BIDS format
+    
+    :param oxasl_dir: Oxford_asl output folder
+    :param output_dir: Destination BIDS output
+    :param bids_src: Source BIDS dataset. If not specified we will assume the output
+                     dir already contains a BIDS dataset which we are merging into
+    
+    """
+    if bids_output_dir:
+        # We are creating a separate output dataset, so we need to start by copying
+        # the BIDS source dataset
+        copy_bids_dataset(bidsdir, bids_output_dir, subject, session)
+    else:
+        bids_output_dir = bidsdir
+
+    base_dir = os.path.join(bids_output_dir, "derivatives", "oxford_asl", "sub-%s" % subject)
+    if session:
+        base_dir = os.path.join(base_dir, "ses-%s" % session)
+    os.makedirs(base_dir, exist_ok=True)
+
+    for (src, dest) in OXASL_OUTPUT_MAPPING:
+        dest =  os.path.join(base_dir, bids_filename(dest, subject, session))
+        src = os.path.join(oxford_asl_dir, src)
+        if op.exists(src):
+            shutil.copy(src, dest)
+        else:
+            LOG.warn("Oxford_asl output file not found: %s" % src)
 # def wipe_dir(path):
 #     shutil.rmtree(path)
 #     os.makedirs(path, exist_ok=True)
