@@ -10,10 +10,14 @@ import shutil
 import numpy as np
 import bids
 
-from . import utils
 from .mappings import get_oxasl_config_from_metadata
 
 LOG = logging.getLogger(__name__)
+
+# Catch-all exception type for BIDS data that cannot be mapped onto a 
+# corresponding oxford_asl argument 
+class IncompatabilityError(Exception):
+    pass 
 
 def get_command_line(options, prog="oxasl", extra_args=[]):
     """
@@ -91,17 +95,17 @@ def _get_asl_config(asl_file):
         ctx_filename = os.path.join(asl_file.dirname, ctx_filename)
 
     if not os.path.isfile(ctx_filename):
-        raise utils.IncompatabilityError("ASL context file not found")
+        raise IncompatabilityError("ASL context file not found")
 
     with open(ctx_filename) as f:
         ctx = [l.lower().strip() for l in f.readlines() if l.strip()]
     if ctx[0] != 'volume_type':
-        raise utils.IncompatabilityError("First line in ASL context is not volume_type")
+        raise IncompatabilityError("First line in ASL context is not volume_type")
     ctx = ctx[1:]
     if 'cbf' in ctx:
-        raise utils.IncompatabilityError("ASL context contains CBF images")
+        raise IncompatabilityError("ASL context contains CBF images")
     if 'deltam' in ctx and ('label' in ctx or 'control' in ctx):
-        raise utils.IncompatabilityError("ASL sequence is mixed deltam and control/label")
+        raise IncompatabilityError("ASL sequence is mixed deltam and control/label")
 
     keys = {'control' : 0,
             'control(perev)': 0,
@@ -126,7 +130,7 @@ def _get_asl_config(asl_file):
         # We have m0scan volumes in the ASL context - this suggests M0 is included in
         # ASL data, so check this and determine volume index
         if metadata.get('M0Type', 'included').lower() != "included":
-            raise utils.IncompatabilityError("JSON M0Type field not set to 'included', but m0scan in aslcontext")
+            raise IncompatabilityError("JSON M0Type field not set to 'included', but m0scan in aslcontext")
         LOG.debug(f"Extracting M0 from {asl_file.filename}")
         options["calib"] = op.abspath(asl_file.path)
         options["calib_volumes"] = calib_frames
@@ -136,7 +140,7 @@ def _get_asl_config(asl_file):
         # No sign of m0scan volumes in ASL context - check M0 type is separate
         # and look for it in associated files
         if metadata.get('M0Type', 'separate').lower() != "separate":
-            raise utils.IncompatabilityError("JSON M0Type field not set to 'separate', but m0scan not in aslcontext")
+            raise IncompatabilityError("JSON M0Type field not set to 'separate', but m0scan not in aslcontext")
         for bids_file in asl_file.get_associations():
             if bids_file.entities["suffix"] == "m0scan":
                 options["calib"] = op.abspath(bids_file.path)
@@ -286,119 +290,3 @@ def oxford_asl_to_bids(oxford_asl_dir, bidsdir, subject, session=None, bids_outp
             shutil.copy(src, dest)
         else:
             LOG.warn("Oxford_asl output file not found: %s" % src)
-# def wipe_dir(path):
-#     shutil.rmtree(path)
-#     os.makedirs(path, exist_ok=True)
-
-# def prepare_config_files(argv): 
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--bidsdir', required=True, type=str)
-#     parser.add_argument('--common_args', required=False, 
-#         type=str, nargs=argparse.REMAINDER)
-#     parser.add_argument('--align', type=str)
-#     parser.add_argument('--overwrite', action='store_true')
-#     parser.add_argument('--fsl_anat', action='store_true')
-
-#     args = dict(vars(parser.parse_args(argv)))
-#     bids_root = args.pop('bidsdir')
-#     align_spc = args.pop('align')
-#     fsl_anat = args.pop('fsl_anat')
-#     overwrite = args.pop('overwrite')
-#     common_args = args['common_args']
-
-#     if align_spc and (align_spc != 'anat'):
-#         raise RuntimeError("Not implemented yet")
-#     if align_spc and (not fsl_anat):
-#         raise RuntimeError("--align must be used with --fsl_anat") 
-
-            # oxdir = oxasl_dir(asl_dir, asl_file)
-            # if overwrite: 
-            #     wipe_dir(oxdir)
-            # elif os.listdir(oxdir):
-            #     raise RuntimeError(f"Oxasl output directory {oxdir} is not empty. Use --overwrite option.")
-            # config_dir = configuration_dir(asl_dir, asl_file)
-            # outpath =  op.join(config_dir, 'oxasl_config.txt')
-            # rel_path_root = op.abspath(op.join(oxdir, '..'))
-            # outstring = _dump_to_string(bids_options, rel_path_root)
-            # outstring += "--output={} ".format(oxdir)
-
-            # if fsl_anat: 
-            #     anatdir = asl_dir.replace('sourcedata', 'derivatives')
-            #     anatdir = anatdir.replace('asl', 'anat')
-            #     anatdirs = glob.glob(op.join(anatdir, 'sub-*T1w.anat'))
-            #     if len(anatdirs) > 1:
-            #         raise RuntimeError(f"Found multiple fsl_anat dirs in {anatdir}")
-            #     elif not len(anatdirs):
-            #         raise RuntimeError(f"Did not find fsl_anat dir in {anatdir}")
-            #     fslanat = op.relpath(anatdirs[0], rel_path_root)
-            #     outstring += "--fslanat={} ".format(fslanat)
-
-            # if align_spc and fsl_anat: 
-            #     t1 = op.join(anatdirs[0], 'T1_biascorr_brain.nii.gz')
-            #     align_img = prepare_alignment_target(t1, op.join(asl_dir, asl))
-            #     align_path = op.join(config_dir, 'oxasl_bids_common_space.nii.gz')
-            #     nibabel.save(align_img, align_path)
-            #     align_mat = utils._world_to_FLIRT(t1, align_path, np.eye(4))
-            #     align_mat_path = op.join(config_dir, 'oxasl_bids_common_space_flirt.txt')
-            #     rel_mat_path, rel_algn_path = [ op.relpath(p, rel_path_root) 
-            #         for p in [ align_mat_path, align_path ] ] 
-            #     np.savetxt(align_mat_path, align_mat)
-            #     outstring += f' --output-custom={rel_algn_path} --output-custom-mat={rel_mat_path}'
-
-            # file_count += 1     
-            # outstring += ' --overwrite'
-            # with open(outpath, 'w') as f: 
-            #     f.write(outstring)
-
-    #     except utils.IncompatabilityError as e:
-    #         print(f"Warning: incompatible parameters found for {asl} - skipping")
-    #         print(e)
-    #         continue
-    #     except FileNotFoundError as e: 
-    #         print(f"Warning: missing file for {asl} - skipping")
-    #         print(e)
-    #         continue
-    #     except Exception as e: 
-    #         raise e 
-
-    # print(f"Wrote {file_count} configuration files in {op.join(bids_root, 'derivatives')}")
-
-
-# def __run_oxasl_worker(at_dir, cmd_path):
-#     os.chdir(at_dir)
-#     cmd = open(cmd_path, 'r').read()
-#     return subprocess.run(cmd, shell=True)
-
-# def run_config_files(argv):
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--bidsdir', required=True, type=str)
-#     parser.add_argument('--cores', default=1, type=int)
-#     args = dict(vars(parser.parse_args(argv)))
-#     bids_root = args['bidsdir']
-#     cores = args['cores']
-
-#     jobs = []  
-#     for derivs_dir in walk_modality_dirs(bids_root, 'perf', datatype_dir="derivatives"):
-#         # Look for the oxasl_directory
-#         all_dirs = glob.glob(op.join(derivs_dir, 'sub-*_oxasl'))
-#         fltr = re.compile('sub-\d*.*_oxasl')
-#         oxasl_dirs = [ p for p in all_dirs if fltr.match(op.split(p)[1]) ]
-#         for oxdir in oxasl_dirs:
-#             config = op.join(oxdir, 'config', 'oxasl_config.txt')
-#             if not op.exists(config):
-#                 LOG.warn(f"Expected to find a configuration file ({config}) in {oxdir}.")
-#                 continue
-#             else: 
-#                 config_path = op.relpath(config, derivs_dir)
-#                 jobs.append((derivs_dir, config_path))
-
-#     if cores > 1:
-#         with multiprocessing.Pool(cores) as p: 
-#             p.starmap(__run_oxasl_worker, jobs)
-#     else: 
-#         for job in jobs: 
-#             __run_oxasl_worker(*job)
-
-
-
-
