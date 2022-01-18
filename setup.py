@@ -81,7 +81,7 @@ kwargs = {
     'long_description' : get_filetext(module_dir, 'README.md'),
     'long_description_content_type' : 'text/markdown',
     'url' : 'https://oxasl.readthedocs.io/',
-    'author' : 'Martin Craig',
+    'author' : 'Martin Craig, Tom Kirk',
     'author_email' : 'martin.craig@eng.ox.ac.uk',
     'license' : 'Apache-2.0',
     'install_requires' : get_requirements(module_dir),

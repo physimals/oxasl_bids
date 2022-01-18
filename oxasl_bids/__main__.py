@@ -14,7 +14,6 @@ oxasl_bids bidsout --oxasl-output <output folder>
 import argparse
 import json
 import logging
-import os
 import sys
 
 import nibabel as nib
