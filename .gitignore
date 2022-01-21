@@ -4,3 +4,4 @@ test.py
 *.pyc
 *.egg-info
 _version.py
+doc/html
