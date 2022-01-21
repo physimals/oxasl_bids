@@ -33,10 +33,10 @@ Usage
 Generation of an oxford_asl script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    oxasl_bids script --bidsdir=<BIDS_DATASET>
-
 This command will generate a script containing a single ```oxford_asl``` command for
-each ASL session found in the BIDS dataset.
+each ASL session found in the BIDS dataset::
+
+    oxasl_bids script --bidsdir=<BIDS_DATASET>
 
 Options
 ^^^^^^^
@@ -54,22 +54,22 @@ Converting oxford_asl output to BIDS format
 BIDS supports two different means of storing derived data:
 
  1. The derived data is the 'primary' content of the BIDS data set. The source data that it was derived
-    from may also be included under the ``sourcedata`` subfolder, but this is not required.
+    from may also be included under the ``sourcedata`` subfolder, but this is not required::
 
     oxasl_bids bidsout --bidsdir=<SOURCE_DATASET> --bids-output=<DEST_DATASET> --subject=<SUBJECT> --session=<SESSION>
 
  2. The derived data is merged into the original BIDS data set (or a copy of it). The source data set
-    is unchanged apart from the addition of a ``derivatives`` folder in which the derived data is stored
+    is unchanged apart from the addition of a ``derivatives`` folder in which the derived data is stored::
 
     oxasl_bids bidsout --bidsdir=<SOURCE_DATASET> --merge-output --subject=<SUBJECT> --session=<SESSION>
 
 Genertion of oxford_asl options from JSON metadata
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    oxford_asl args --img=<NIFTI_IMAGE> --img-type=[asl|calib|cblip|struct]
+This command outputs ``oxford_asl`` options extracted from the metadata of the supplied image
+which will be interpreted as the type given::
 
-This function outputs ``oxford_asl`` options extrtacted from the metadata of the supplied image
-which will be interpreted as the type given:
+    oxford_asl args --img=<NIFTI_IMAGE> --img-type=[asl|calib|cblip|struct]
 
  - ``asl`` - ASL data consisting of label/control pairs or already differenced
  - ``calib`` - M0 image intended for calibration of ASL data
@@ -80,15 +80,13 @@ The purpose of this is to work with data that is not in BIDS format but does con
 metadata sidecar files. An example of this would be data converted using the ``dcm2niix`` tool with the
 option ``-b y`` (this is the default in recent versions of ``dcm2niix``). For example freshly converted
 ASL session data could be run through ``oxford_asl`` as follows without any manual inspection of the
-metadata:
+metadata::
 
-```
-oxford_asl `oxasl_bids args --img=asldata.nii.gz --img-type=asl` \
-           `oxasl_bids args --img=calib.nii.gz --img-type=calib` \
-           `oxasl_bids args --img=cblip.nii.gz --img-type=cblip` \
-           `oxasl_bids args --img=t1.nii.gz --img-type=struct` \
-           -o oxford_asl_out --mc
-```
+   oxford_asl `oxasl_bids args --img=asldata.nii.gz --img-type=asl` \
+            `oxasl_bids args --img=calib.nii.gz --img-type=calib` \
+            `oxasl_bids args --img=cblip.nii.gz --img-type=cblip` \
+            `oxasl_bids args --img=t1.nii.gz --img-type=struct` \
+            -o oxford_asl_out --mc
 
 The only options that need to be specified in this case are those connected with the modelling itself, 
 e.g. whether to do motion correction.
