@@ -44,9 +44,10 @@ Options
  - ``--run-fslanat`` : If specified, an additional call to FSL_ANAT will be included for each structural
    image found. The ``oxford_asl`` commands will be directed to the structural data in the output directory
    of this command.
- - ``--output-as-bids`` : If specified, additional commands will be included to convert the oxford_asl output
-   back in to BIDS format. This may be merged with the existing BIDS data set as derived data or a new
-   BIDS data set can be generated (see ``--merge-output``, ``--bids-output`` in section below)
+ - ``--bids-output=<DIR>`` : If specified, additional commands will be included to convert the oxford_asl output
+   back in to a BIDS format dataset in the specified directory - see section below for details
+ - ``--merge-source`` : If specified, additional commands will be included that merge the oxford_asl output back
+   into the source BIDS dataset as derived data - see section below for more details.
 
 Converting oxford_asl output to BIDS format
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
