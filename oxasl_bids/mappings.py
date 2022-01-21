@@ -42,10 +42,6 @@ def _postproc_asl(metadata, options):
     options.pop(otype, None)
     if isinstance(options[ttype], (int, float)):
         options[ttype] = [options[ttype]]
-    if options.get('iaf', 'diff') != 'diff':
-        # With TC pairs the timings will be repeated. We don't care about the order since
-        # no valid ASL sequence will have different timings for tag and control.
-        options[ttype] = [options[ttype][idx] for idx in range(0, len(options[ttype]), 2)]
 
 def _postproc_cblip(metadata, options):
     if "totalreadouttime" in options:
