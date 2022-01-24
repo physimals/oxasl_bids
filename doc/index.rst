@@ -1,4 +1,3 @@
-
 OXASL_BIDS - Tools for interoperating between BIDS datasets and oxasl/oxford_asl
 ================================================================================
 
@@ -23,9 +22,12 @@ Current limitations
  - Label/control or differenced data only, no support for multiphase, vessel encoded
    or other styles of ASL data
  
- - Output may not be fully BIDS compliant pending better understanding of the standard
+ - Does not detect blocked repeats, i.e. repeated TIs/PLDs represented by multiple
+   TIs/PLDs of the same value
 
- - Not all oxford_asl outputs are included in BIDS transformation
+ - BIDS output conversion is incomplete. Output may not be fully BIDS compliant 
+   pending better understanding of the standard. In addition, not all oxford_asl 
+   outputs are included in BIDS transformation
 
 Usage
 -----
@@ -63,6 +65,7 @@ BIDS supports two different means of storing derived data:
     is unchanged apart from the addition of a ``derivatives`` folder in which the derived data is stored::
 
          oxasl_bids bidsout --bidsdir=<SOURCE_DATASET> --merge-output --subject=<SUBJECT> --session=<SESSION>
+
 
 Genertion of oxford_asl options from JSON metadata
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
