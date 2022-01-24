@@ -37,7 +37,12 @@ def get_command_line(options, prog="oxasl", extra_args=[]):
             key = "--" + key
 
         if isinstance(val, list):
-            val = ",".join([str(v) for v in val])
+            if all([isinstance(v, int) for v in val]):
+                val = ",".join(["%i" % v for v in val])
+            else:
+                val = ",".join(["%.3g" % v for v in val])
+        elif isinstance(val, float):
+            val = "%.4g" % val
 
         if isinstance(val, bool):
             if val: 
