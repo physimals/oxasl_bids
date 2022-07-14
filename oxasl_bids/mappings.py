@@ -107,16 +107,18 @@ METADATA_MAPPINGS = {
     ],
 }
 
-def get_oxasl_config_from_metadata(metadata, filetype, img_shape=None):
+def oxasl_config_from_metadata(metadata, filetype, img_shape=None):
     """
-    Get the relevant oxasl options from metadata
+    Get the relevant oxasl options from JSON metadata
     
     :param metadata: Metadata dictionary
     :param filetype: Type of file metadata describes: asl, calib, cblip, struct
+    :param img_shape: Image shape, required for some mappings
     """
     oxasl_config = {}
     metadata = dict(metadata)
-    metadata.update({"img_shape" : img_shape})
+    if img_shape is not None:
+        metadata.update({"img_shape" : img_shape})
 
     for oxasl_key, md_key in METADATA_MAPPINGS[filetype]:
         val = None

@@ -1,5 +1,5 @@
 """
-OXASL_BIDS: Maps BIDS data sets on to oxasl/oxford_asl options
+OXASL_BIDS: Maps BIDS data sets on to oxasl options and oxasl output back to BIDS
 """
 import os.path as op
 import os
@@ -7,21 +7,140 @@ import copy
 import logging
 import shutil
 
-import numpy as np
 import bids
 
 from . import utils
-from .mappings import get_oxasl_config_from_metadata
+from .mappings import oxasl_config_from_metadata
 
 LOG = logging.getLogger(__name__)
 
-def get_command_line(options, prog="oxasl", extra_args=[]):
+OXASL_OUTPUT_MAPPING = {
+    "perfusion_calib" : "CBFmap",
+    "aCBV_calib" : "aCBVmap",
+    "arrival" : "ATTmap",
+    "perfusion_var_calib" : "CBFvar",
+    "aCBV_var_calib" : "aCBVvar",
+    "arrival_var" : "ATTvar",
+    "mask" : "mask"
+    # FIXME normalised / relative CBF, sensitivity map, WM/GM masks, 
+    # cortical/cerebral maps
+    # Transformation matrices
+    # GM/WM mean values
+    # Structural / std space outputs
+    # PVC outputs
+}
+
+def oxasl_config_from_bids(bids_root, common_options=None):
+    """
+    Get OXASL configuration options from a BIDS data set
+
+    :param bids_root: Path to root of BIDS dataset
+    :param common_options: Optional dictionary of oxasl options to add to BIDS derived options
+
+    :return Sequence of OXASL configuration options, one for each ASL file found
+            in the BIDS dataset
+    """
+    configs = []
+    bids_sessions = _get_bids_sessions(bids_root)
+    for subjid, sessions in bids_sessions.items():
+        for sessid, sess_files in sessions.items():
+            for asl_file in sess_files["asl"]:
+                bids_options = _get_oxasl_config(asl_file, sess_files)
+                if common_options:
+                    bids_options = _guarded_merge(common_options, bids_options)
+                if "output" not in bids_options:
+                    output_dir = f"sub-{subjid}"
+                    if sessid:
+                        output_dir += f"sess-{sessid}"
+                    bids_options["output"] = output_dir
+
+                LOG.debug("OXASL config for file %s" % asl_file.filename)
+                LOG.debug(_get_oxasl_command_line(bids_options))
+                configs.append({"options" : bids_options, "subject" : subjid, "session" : sessid})
+    return configs
+
+def oxasl_output_to_bids(oxasl_dir, bidsdir, subject, session=None, bids_output_dir=None):
+    """
+    Convert oxasl output to BIDS format
+    
+    :param oxasl_dir: Oxasl output folder
+    :param bidsdir: Source BIDS dataset. If not specified we will assume the output
+                    dir already contains a BIDS dataset which we are merging into
+    :param subject: Subject ID for this oxasl run
+    :param session: Session ID for this oxasl run. If not specified assume only
+                    one session present in dataset
+    :param output_dir: Destination BIDS output. If not specified, merge with source BIDS
+                       data as a derivative
+    """
+    if bids_output_dir:
+        # We are creating a separate output dataset, so we need to start by copying
+        # the BIDS source dataset
+        # FIXME this isn't quite right we should create a separate data set with optional
+        # sourcedata and maybe it could already exist and include multiple subjects...
+        #_copy_bids_dataset(bidsdir, bids_output_dir, subject, session)
+        bids_output_subdir = "derivatives"
+    else:
+        bids_output_dir = bidsdir
+        bids_output_subdir = "derivatives"
+
+    # FIXME, check that subject exists in bidsdir and session too (or if no session that
+    # source dataset only has single session for this subject)
+    base_dir = os.path.join(bids_output_dir, bids_output_subdir, "oxasl", "sub-%s" % subject)
+    if session:
+        base_dir = os.path.join(base_dir, "ses-%s" % session)
+    os.makedirs(base_dir, exist_ok=True)
+
+    for space in ("native", "std", "struct"):
+        srcdir = os.path.join(oxasl_dir, f"{space}_space")
+        LOG.info(f"Looking for {space} space output")
+        if not os.path.isdir(srcdir): continue
+        for src, dest in OXASL_OUTPUT_MAPPING.items():
+            srcpath, ext = _getnii(os.path.join(srcdir, src))
+            if srcpath:
+                destpath =  os.path.join(base_dir, utils.bids_filename(dest + ext, subject, session, {"space" : space}))
+                LOG.info(f"Copying {srcpath} to {destpath}")
+                shutil.copy(srcpath, destpath)
+            else:
+                LOG.warn("Oxasl output file not found: %s" % src)
+
+def get_output_as_bids_command(args, config):
+    """
+    Get the command to convert the output of oxasl to a BIDS data set
+
+    :param args: Command line arguments
+    :param config: oxasl session config
+    """
+    options = config["options"]
+    cmdline = f"oxasl_bids bidsout --bidsdir {os.path.abspath(args.bidsdir)} --oxasl-output {options['output']} --subject {config['subject']}"
+    if config['session']:
+        cmdline += f" --session {config['session']}"
+    if args.bids_output:
+        cmdline += f" --bids-output {os.path.abspath(args.bids_output)}"
+    if args.merge_source:
+        cmdline += f" --merge-source"
+    return cmdline
+
+def get_fslanat_command(options):
+    """
+    Update OXASL configuration to use a separately run FSL_ANAT command on the structural
+    image rather than passing it to OXASL directly.
+
+    :param options: OXASL configuration dict. Structural image option will be removed
+                   and FSL_ANAT option added
+    :return: Command line to run FSL_ANAT on the structural data from the OXASL configuration
+    """
+    struct_data = options.pop("struct")
+    struct_name = os.path.basename(struct_data[:struct_data.index(".nii")])
+    options["fslanat"] = struct_name + ".anat"
+    return f"fsl_anat -i {struct_data} -o {options['fslanat']}\n"
+
+def get_oxasl_command_line(options, extra_args=[]):
     """
     :param options: Dictionary of options derived from BIDS
 
-    :return: Command string to run oxasl or oxford_asl
+    :return: Command string to run oxasl
     """
-    txt = prog + ' '
+    txt = 'oxasl '
     for key,val in options.items():
         if key == "asl":
             key = "-i"
@@ -69,8 +188,7 @@ def _guarded_merge(common, specific):
             val = arg_string[arg_string.index('=')+1:]
 
             if key in specific:
-                LOG.warn(f"Overwriting --{key} with value set in --common_args " + 
-                f"({val} replaces {specific[key]}).")
+                LOG.warn(f"Overwriting --{key} with value set in --common_args ({val} replaces {specific[key]})")
             merged[key] = val 
 
         else: 
@@ -83,7 +201,7 @@ def _get_asl_config(asl_file):
     Extract relevant oxasl configuration from a BIDSImageFile containing ASL data
     """
     options = {"asl" : op.abspath(asl_file.path)}
-    options.update(get_oxasl_config_from_metadata(asl_file.get_metadata(), "asl"))
+    options.update(oxasl_config_from_metadata(asl_file.get_metadata(), "asl"))
     metadata = asl_file.get_metadata()
 
     # Get the ASL context and interpret it. This is what tells us the ordering of
@@ -152,7 +270,7 @@ def _get_asl_config(asl_file):
         options["calib"] = op.abspath(asl_file.path)
         options["calib_volumes"] = calib_frames
         options["asl_volumes"] = asl_frames
-        options.update(get_oxasl_config_from_metadata(asl_file.get_metadata(), "calib"))
+        options.update(oxasl_config_from_metadata(asl_file.get_metadata(), "calib"))
     else: 
         # No sign of m0scan volumes in ASL context - check M0 type is separate
         # and look for it in associated files
@@ -162,7 +280,7 @@ def _get_asl_config(asl_file):
             if bids_file.entities["suffix"] == "m0scan":
                 LOG.debug(f"Found M0 in separate file referenced from ASL data: {bids_file.filename}")
                 options["calib"] = op.abspath(bids_file.path)
-                options.update(get_oxasl_config_from_metadata(bids_file.get_metadata(), "calib"))
+                options.update(oxasl_config_from_metadata(bids_file.get_metadata(), "calib"))
     return options
 
 def _get_struct_config(struct_file):
@@ -178,7 +296,7 @@ def _get_calib_config(m0_file):
     ret = {}
     if m0_file.entities.get("datatype", None) != "fmap":
         ret["calib"] = op.abspath(m0_file.path)
-        ret.update(get_oxasl_config_from_metadata(m0_file.get_metadata(), "calib", m0_file.get_image().shape))
+        ret.update(oxasl_config_from_metadata(m0_file.get_metadata(), "calib", m0_file.get_image().shape))
 
 def _get_cblip_config(m0_file):
     """
@@ -188,7 +306,7 @@ def _get_cblip_config(m0_file):
     ret = {}
     if m0_file.entities.get("datatype", None) == "fmap":
         ret["cblip"] = op.abspath(m0_file.path)
-        ret.update(get_oxasl_config_from_metadata(m0_file.get_metadata(), "cblip", m0_file.get_image().shape))
+        ret.update(oxasl_config_from_metadata(m0_file.get_metadata(), "cblip", m0_file.get_image().shape))
 
     return ret
 
@@ -223,7 +341,7 @@ def _get_oxasl_config(asl_file, sess_files):
     # Need to fix PLDs a bit 
     return options
 
-def get_bids_sessions(bids_root):
+def _get_bids_sessions(bids_root):
     """
     Get structure describing all sessions found in a BIDS dataset
 
@@ -252,138 +370,8 @@ def get_bids_sessions(bids_root):
 
     return data_files
 
-def oxasl_config_from_bids(bids_root, common_options=None):
-    """
-    Get OXASL configuration options from a BIDS data set
-
-    :param bids_root: Path to root of BIDS dataset
-    :param common_options: Optional dictionary of oxasl options to add to BIDS derived options
-
-    :return Sequence of OXASL configuration options, one for each ASL file found
-            in the BIDS dataset
-    """
-    configs = []
-    bids_sessions = get_bids_sessions(bids_root)
-    for subjid, sessions in bids_sessions.items():
-        for sessid, sess_files in sessions.items():
-            for asl_file in sess_files["asl"]:
-                bids_options = _get_oxasl_config(asl_file, sess_files)
-                if common_options:
-                    bids_options = _guarded_merge(common_options, bids_options)
-                if "output" not in bids_options:
-                    output_dir = f"sub-{subjid}"
-                    if sessid:
-                        output_dir += f"sess-{sessid}"
-                    bids_options["output"] = output_dir
-
-                LOG.debug("OXASL config for file %s" % asl_file.filename)
-                LOG.debug(get_command_line(bids_options))
-                configs.append({"options" : bids_options, "subject" : subjid, "session" : sessid})
-    return configs
-
-def get_output_as_bids_command(args, config):
-    """
-    Get the command to convert the output of oxford_asl to a BIDS data set
-
-    :param args: Command line arguments
-    :param config: oxford_asl session config
-    """
-    options = config["options"]
-    cmdline = f"oxasl_bids bidsout --bidsdir {os.path.abspath(args.bidsdir)} --oxasl-output {options['output']} --subject {config['subject']}"
-    if config['session']:
-        cmdline += f" --session {config['session']}"
-    if args.bids_output:
-        cmdline += f" --bids-output {os.path.abspath(args.bids_output)}"
-    if args.merge_source:
-        cmdline += f" --merge-source"
-    return cmdline
-
-def get_fslanat_command(options):
-    """
-    Update OXASL configuration to use a separately run FSL_ANAT command on the structural
-    image rather than passing it to OXASL directly.
-
-    :param options: OXASL configuration dict. Structural image option will be removed
-                   and FSL_ANAT option added
-    :return: Command line to run FSL_ANAT on the structural data from the OXASL configuration
-    """
-    struct_data = options.pop("struct")
-    struct_name = os.path.basename(struct_data[:struct_data.index(".nii")])
-    options["fslanat"] = struct_name + ".anat"
-    return "fsl_anat -i %s -o %s\n" % (struct_data, options["fslanat"])
-
-OXASL_OUTPUT_MAPPING = {
-    "perfusion_calib" : "CBFmap",
-    "aCBV_calib" : "aCBVmap",
-    "arrival" : "ATTmap",
-    "perfusion_var_calib" : "CBFvar",
-    "aCBV_var_calib" : "aCBVvar",
-    "arrival_var" : "ATTvar",
-    "mask" : "mask"
-    # FIXME normalised / relative CBF, sensitivity map, WM/GM masks, 
-    # cortical/cerebral maps
-    # Transformation matrices
-    # GM/WM mean values
-    # Structural / std space outputs
-    # PVC outputs
-}
-
-def copy_bids_dataset(bidsdir, output_dir, subject=None, session=None):
+def _copy_bids_dataset(bidsdir, output_dir, subject=None, session=None):
     raise NotImplementedError()
-
-def bids_filename(suffix, subject, session, labeldict=None):
-    fname = f"sub-{subject}"
-    if session:
-        fname += f"_ses-%{session}"
-    if labeldict:
-        for key, value in labeldict.items():
-            fname += f"_{key}-{value}"
-    fname += f"_{suffix}"
-    return fname
-
-def oxford_asl_to_bids(oxford_asl_dir, bidsdir, subject, session=None, bids_output_dir=None):
-    """
-    Convert oxford_asl output to BIDS format
-    
-    :param oxasl_dir: Oxford_asl output folder
-    :param bidsdir: Source BIDS dataset. If not specified we will assume the output
-                    dir already contains a BIDS dataset which we are merging into
-    :param subject: Subject ID for this oxford_asl run
-    :param session: Session ID for this oxford_asl run. If not specified assume only
-                    one session present in dataset
-    :param output_dir: Destination BIDS output. If not specified, merge with source BIDS
-                       data as a derivative
-    """
-    if bids_output_dir:
-        # We are creating a separate output dataset, so we need to start by copying
-        # the BIDS source dataset
-        # FIXME this isn't quite right we should create a separate data set with optional
-        # sourcedata and maybe it could already exist and include multiple subjects...
-        #copy_bids_dataset(bidsdir, bids_output_dir, subject, session)
-        bids_output_subdir = "derivatives"
-    else:
-        bids_output_dir = bidsdir
-        bids_output_subdir = "derivatives"
-
-    # FIXME, check that subject exists in bidsdir and session too (or if no session that
-    # source dataset only has single session for this subject)
-    base_dir = os.path.join(bids_output_dir, bids_output_subdir, "oxford_asl", "sub-%s" % subject)
-    if session:
-        base_dir = os.path.join(base_dir, "ses-%s" % session)
-    os.makedirs(base_dir, exist_ok=True)
-
-    for space in ("native", "std", "struct"):
-        srcdir = os.path.join(oxford_asl_dir, f"{space}_space")
-        LOG.info(f"Looking for {space} space output")
-        if not os.path.isdir(srcdir): continue
-        for src, dest in OXASL_OUTPUT_MAPPING.items():
-            srcpath, ext = _getnii(os.path.join(srcdir, src))
-            if srcpath:
-                destpath =  os.path.join(base_dir, bids_filename(dest + ext, subject, session, {"space" : space}))
-                LOG.info(f"Copying {srcpath} to {destpath}")
-                shutil.copy(srcpath, destpath)
-            else:
-                LOG.warn("Oxford_asl output file not found: %s" % src)
 
 def _getnii(fname):
     for ext in (".nii.gz", ".nii"):
@@ -391,120 +379,3 @@ def _getnii(fname):
         if os.path.exists(fname + ext):
             return fname + ext, ext
     return None, None
-
-# def wipe_dir(path):
-#     shutil.rmtree(path)
-#     os.makedirs(path, exist_ok=True)
-
-# def prepare_config_files(argv): 
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--bidsdir', required=True, type=str)
-#     parser.add_argument('--common_args', required=False, 
-#         type=str, nargs=argparse.REMAINDER)
-#     parser.add_argument('--align', type=str)
-#     parser.add_argument('--overwrite', action='store_true')
-#     parser.add_argument('--fsl_anat', action='store_true')
-
-#     args = dict(vars(parser.parse_args(argv)))
-#     bids_root = args.pop('bidsdir')
-#     align_spc = args.pop('align')
-#     fsl_anat = args.pop('fsl_anat')
-#     overwrite = args.pop('overwrite')
-#     common_args = args['common_args']
-
-#     if align_spc and (align_spc != 'anat'):
-#         raise RuntimeError("Not implemented yet")
-#     if align_spc and (not fsl_anat):
-#         raise RuntimeError("--align must be used with --fsl_anat") 
-
-            # oxdir = oxasl_dir(asl_dir, asl_file)
-            # if overwrite: 
-            #     wipe_dir(oxdir)
-            # elif os.listdir(oxdir):
-            #     raise RuntimeError(f"Oxasl output directory {oxdir} is not empty. Use --overwrite option.")
-            # config_dir = configuration_dir(asl_dir, asl_file)
-            # outpath =  op.join(config_dir, 'oxasl_config.txt')
-            # rel_path_root = op.abspath(op.join(oxdir, '..'))
-            # outstring = _dump_to_string(bids_options, rel_path_root)
-            # outstring += "--output={} ".format(oxdir)
-
-            # if fsl_anat: 
-            #     anatdir = asl_dir.replace('sourcedata', 'derivatives')
-            #     anatdir = anatdir.replace('asl', 'anat')
-            #     anatdirs = glob.glob(op.join(anatdir, 'sub-*T1w.anat'))
-            #     if len(anatdirs) > 1:
-            #         raise RuntimeError(f"Found multiple fsl_anat dirs in {anatdir}")
-            #     elif not len(anatdirs):
-            #         raise RuntimeError(f"Did not find fsl_anat dir in {anatdir}")
-            #     fslanat = op.relpath(anatdirs[0], rel_path_root)
-            #     outstring += "--fslanat={} ".format(fslanat)
-
-            # if align_spc and fsl_anat: 
-            #     t1 = op.join(anatdirs[0], 'T1_biascorr_brain.nii.gz')
-            #     align_img = prepare_alignment_target(t1, op.join(asl_dir, asl))
-            #     align_path = op.join(config_dir, 'oxasl_bids_common_space.nii.gz')
-            #     nibabel.save(align_img, align_path)
-            #     align_mat = utils._world_to_FLIRT(t1, align_path, np.eye(4))
-            #     align_mat_path = op.join(config_dir, 'oxasl_bids_common_space_flirt.txt')
-            #     rel_mat_path, rel_algn_path = [ op.relpath(p, rel_path_root) 
-            #         for p in [ align_mat_path, align_path ] ] 
-            #     np.savetxt(align_mat_path, align_mat)
-            #     outstring += f' --output-custom={rel_algn_path} --output-custom-mat={rel_mat_path}'
-
-            # file_count += 1     
-            # outstring += ' --overwrite'
-            # with open(outpath, 'w') as f: 
-            #     f.write(outstring)
-
-    #     except utils.IncompatabilityError as e:
-    #         print(f"Warning: incompatible parameters found for {asl} - skipping")
-    #         print(e)
-    #         continue
-    #     except FileNotFoundError as e: 
-    #         print(f"Warning: missing file for {asl} - skipping")
-    #         print(e)
-    #         continue
-    #     except Exception as e: 
-    #         raise e 
-
-    # print(f"Wrote {file_count} configuration files in {op.join(bids_root, 'derivatives')}")
-
-
-# def __run_oxasl_worker(at_dir, cmd_path):
-#     os.chdir(at_dir)
-#     cmd = open(cmd_path, 'r').read()
-#     return subprocess.run(cmd, shell=True)
-
-# def run_config_files(argv):
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--bidsdir', required=True, type=str)
-#     parser.add_argument('--cores', default=1, type=int)
-#     args = dict(vars(parser.parse_args(argv)))
-#     bids_root = args['bidsdir']
-#     cores = args['cores']
-
-#     jobs = []  
-#     for derivs_dir in walk_modality_dirs(bids_root, 'perf', datatype_dir="derivatives"):
-#         # Look for the oxasl_directory
-#         all_dirs = glob.glob(op.join(derivs_dir, 'sub-*_oxasl'))
-#         fltr = re.compile('sub-\d*.*_oxasl')
-#         oxasl_dirs = [ p for p in all_dirs if fltr.match(op.split(p)[1]) ]
-#         for oxdir in oxasl_dirs:
-#             config = op.join(oxdir, 'config', 'oxasl_config.txt')
-#             if not op.exists(config):
-#                 LOG.warn(f"Expected to find a configuration file ({config}) in {oxdir}.")
-#                 continue
-#             else: 
-#                 config_path = op.relpath(config, derivs_dir)
-#                 jobs.append((derivs_dir, config_path))
-
-#     if cores > 1:
-#         with multiprocessing.Pool(cores) as p: 
-#             p.starmap(__run_oxasl_worker, jobs)
-#     else: 
-#         for job in jobs: 
-#             __run_oxasl_worker(*job)
-
-
-
-

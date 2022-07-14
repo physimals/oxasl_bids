@@ -45,7 +45,7 @@ EXAMPLES = {
     },
     "asl004" : {
         # 48 TC pairs 2D acquisition multi PLD with 8 repeats per PLD with separate M0
-        # Note we do not handle repeats at present
+        # Note we do not handle repeats at present so you end up with a long list of PLDs
         "iaf" : "tc",
         "slicedt" : 0.0452,
         "bolus" : 1.4,
