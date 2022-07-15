@@ -106,7 +106,7 @@ def do_bids(args, remainder):
             if fslanat_cmd not in fsl_anat_calls:
                 print(fslanat_cmd)
                 fsl_anat_calls.append(fslanat_cmd)
-        print(get_oxasl_command_line(options, prog=args.pipeline, extra_args=remainder) + "\n")
+        print(get_oxasl_command_line(options, extra_args=remainder) + "\n")
         if args.bids_output or args.merge_source:
             output_asl_bids_cmd = get_output_as_bids_command(args, config)
             print(output_asl_bids_cmd)
