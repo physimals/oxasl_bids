@@ -11,16 +11,18 @@ EXAMPLES_DIR = "/home/martin/code/thirdparty/bids-examples"
 EXAMPLES = {
     "asl001" : {
         # pre-subtracted PCASL single PLD with embedded M0 in first volume
-        "asldata" : ("perf/sub-Sub103_asl.nii.gz", 1),
+        "asl" : "perf/sub-Sub103_asl.nii.gz",
+        "asl_volumes" : 1,
         "iaf" : "diff",
         "tes" : 0.010528,
         "casl" : True,
         "bolus" : 1.450,
         "plds" : 2.025,
-        "calib" : ("perf/sub-Sub103_asl.nii.gz", 0),
+        "calib" : "perf/sub-Sub103_asl.nii.gz",
+        "calib_volumes" : 0,
         "tr" : 4.886,
         "te" : 0.010528,
-        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None),
+        "struct" : "anat/sub-Sub103_T1w.nii.gz",
     },
     "asl002" : {
         # PCASL single PLD CT pairs 2D acquisition with separate M0
@@ -30,18 +32,18 @@ EXAMPLES = {
         "bolus" : 1.8,
         "plds" : 2.0,
         "slicedt" : 0.0385,
-        "asldata" : ("perf/sub-Sub103_asl.nii.gz", None),
-        "calib" : ("perf/sub-Sub103_m0scan.nii.gz", None),
-        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None),
+        "asl" : "perf/sub-Sub103_asl.nii.gz",
+        "calib" : "perf/sub-Sub103_m0scan.nii.gz",
+        "struct" : "anat/sub-Sub103_T1w.nii.gz",
     },
     "asl003" : {
         # Multi-PLD PASL TC pairs with separate M0
         "iaf" : "tc",
         "tes" : 0.01192,
         "tis" : [0.3,0.6,0.9,1.2,1.5,1.8,2.1,2.4,2.7,3],
-        "asldata" : ("perf/sub-Sub1_asl.nii.gz", None),
-        "calib" : ("perf/sub-Sub1_m0scan.nii.gz", None),
-        "struct" : ("anat/sub-Sub1_T1w.nii.gz", None),
+        "asl" : "perf/sub-Sub1_asl.nii.gz",
+        "calib" : "perf/sub-Sub1_m0scan.nii.gz",
+        "struct" : "anat/sub-Sub1_T1w.nii.gz",
     },
     "asl004" : {
         # 48 TC pairs 2D acquisition multi PLD with 8 repeats per PLD with separate M0
@@ -56,27 +58,27 @@ EXAMPLES = {
                   1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 
                   1.25, 1.25, 1.25, 1.25, 1.25, 1.25, 1.25, 1.25,
                   1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
-        "asldata" : ("perf/sub-Sub1_asl.nii.gz", None),
-        "calib" : ("perf/sub-Sub1_m0scan.nii.gz", None),
-        "cblip" : ("fmap/sub-Sub1_dir-pa_m0scan.nii.gz", None),
+        "asl" : "perf/sub-Sub1_asl.nii.gz",
+        "calib" : "perf/sub-Sub1_m0scan.nii.gz",
+        "cblip" : "fmap/sub-Sub1_dir-pa_m0scan.nii.gz",
         "echospacing" : 0.00095,
         "pedir" : "y",
-        "struct" : ("anat/sub-Sub1_T1w.nii.gz", None),
+        "struct" : "anat/sub-Sub1_T1w.nii.gz",
     },
     "asl005" : {
         # 8 CT pairs single PLD PCASL separate M0
         "iaf" : "ct",
         "bolus" : 1.8,
         "plds" : 2.0,
-        "asldata" : ("perf/sub-Sub103_asl.nii.gz", None),
-        "calib" : ("perf/sub-Sub103_m0scan.nii.gz", None),
-        "struct" : ("anat/sub-Sub103_T1w.nii.gz", None),
+        "asl" : "perf/sub-Sub103_asl.nii.gz",
+        "calib" : "perf/sub-Sub103_m0scan.nii.gz",
+        "struct" : "anat/sub-Sub103_T1w.nii.gz",
     },
 }
 
 def check_matches(config, expected_config):
     for key, value in expected_config.items():
-        actual_value = config[key]
+        actual_value = config.get(key, None)
         if isinstance(actual_value, list) and len(actual_value) == 1:
             actual_value = actual_value[0]
 
@@ -89,7 +91,9 @@ def check_matches(config, expected_config):
         elif isinstance(value, list):
             assert(len(value) == len(actual_value))
             for v, av in zip(value, actual_value):
-                assert abs(v - av) < 0.00001 
+                assert abs(v - av) < 0.00001
+        elif isinstance(value, str) and "/" in value:
+            assert(actual_value.endswith(value))
         else:
             assert(value == actual_value)
 
@@ -98,7 +102,7 @@ def check_bids_example(subdir):
     bids_root = os.path.join(EXAMPLES_DIR, subdir)
     configs = oxasl_config_from_bids(bids_root)
     assert(len(configs) == 1)
-    check_matches(configs[0], expected_config)
+    check_matches(configs[0]['options'], expected_config)
 
 def test_asl001():
     check_bids_example("asl001")
