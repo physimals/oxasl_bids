@@ -55,7 +55,7 @@ def oxasl_config_from_bids(bids_root, common_options=None):
                     bids_options["output"] = output_dir
 
                 LOG.debug("OXASL config for file %s" % asl_file.filename)
-                LOG.debug(_get_oxasl_command_line(bids_options))
+                LOG.debug(get_oxasl_command_line(bids_options))
                 configs.append({"options" : bids_options, "subject" : subjid, "session" : sessid})
     return configs
 
@@ -237,16 +237,17 @@ def _get_asl_config(asl_file):
     frame_codes = [ keys[frame] for frame in ctx ]
     asl_frames = [ i for i,code in enumerate(frame_codes) if code < 3 ]
     calib_frames = [ i for i,code in enumerate(frame_codes) if code == 3 ]
+    asl_frame_codes = [frame_codes[i] for i in asl_frames]
     if not asl_frames:
         raise utils.IncompatabilityError("No ASL data (label/control or deltam found in ASL data file")
     elif len(asl_frames) == 1 and frame_codes[asl_frames[0]] != 2:
         raise utils.IncompatabilityError("Only one ASL volume found in ASL data file and it was not a deltam image")
 
-    if frame_codes[asl_frames[0]] == 2:
+    if asl_frame_codes[0] == 2:
         options["iaf"] = 'diff'
     else:
-        label_idxs = [idx for idx, frame_type in enumerate(asl_frames) if frame_type == 1]
-        control_idxs = [idx for idx, frame_type in enumerate(asl_frames) if frame_type == 2]
+        label_idxs = [idx for idx, frame_type in enumerate(asl_frame_codes) if frame_type == 1]
+        control_idxs = [idx for idx, frame_type in enumerate(asl_frame_codes) if frame_type == 2]
         if all([idx % 2 == 0 for idx in label_idxs]) and all([idx % 2 == 1 for idx in control_idxs]):
             options["iaf"] = 'tc'
         elif all([idx % 2 == 1 for idx in label_idxs]) and all([idx % 2 == 0 for idx in control_idxs]):
@@ -296,7 +297,7 @@ def _get_calib_config(m0_file):
     ret = {}
     if m0_file.entities.get("datatype", None) != "fmap":
         ret["calib"] = op.abspath(m0_file.path)
-        ret.update(oxasl_config_from_metadata(m0_file.get_metadata(), "calib", m0_file.get_image().shape))
+        ret.update(oxasl_config_from_metadata(m0_file.get_metadata(), "calib", img_shape=m0_file.get_image().shape))
 
 def _get_cblip_config(m0_file):
     """
@@ -306,7 +307,7 @@ def _get_cblip_config(m0_file):
     ret = {}
     if m0_file.entities.get("datatype", None) == "fmap":
         ret["cblip"] = op.abspath(m0_file.path)
-        ret.update(oxasl_config_from_metadata(m0_file.get_metadata(), "cblip", m0_file.get_image().shape))
+        ret.update(oxasl_config_from_metadata(m0_file.get_metadata(), "cblip", img_shape=m0_file.get_image().shape))
 
     return ret
 
