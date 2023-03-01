@@ -40,8 +40,10 @@ def _postproc_asl(metadata, options):
 
     # Remove unused timings field and make sure it is a list
     options.pop(otype, None)
-    if isinstance(options[ttype], (int, float)):
-        options[ttype] = [options[ttype]]
+    list_opts = [ttype, "tes"]
+    for opt in list_opts:
+        if isinstance(options[opt], (int, float)):
+            options[opt] = [options[opt]]
 
 def _postproc_cblip(metadata, options):
     if "totalreadouttime" in options:
