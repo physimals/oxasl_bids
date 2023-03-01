@@ -42,7 +42,7 @@ def _postproc_asl(metadata, options):
     options.pop(otype, None)
     list_opts = [ttype, "tes"]
     for opt in list_opts:
-        if isinstance(options[opt], (int, float)):
+        if opt in options and isinstance(options[opt], (int, float)):
             options[opt] = [options[opt]]
 
 def _postproc_cblip(metadata, options):
