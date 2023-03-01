@@ -196,6 +196,49 @@ def _guarded_merge(common, specific):
 
     return merged
 
+def _parse_aslcontext(ctx_filename):
+    with open(ctx_filename) as f:
+        ctx = [l.lower().strip() for l in f.readlines() if l.strip()]
+    if ctx[0] != 'volume_type':
+        raise utils.IncompatabilityError("First line in ASL context is not volume_type")
+    ctx = ctx[1:]
+    if 'cbf' in ctx:
+        raise utils.IncompatabilityError("ASL context contains CBF images")
+    if 'deltam' in ctx and ('label' in ctx or 'control' in ctx):
+        raise utils.IncompatabilityError("ASL sequence is mixed deltam and control/label")
+
+    keys = {'control' : 0,
+            'control(perev)': 0,
+            'label': 1,
+            'deltam': 2,
+            'm0scan': 3}
+
+    frame_codes = [ keys[frame] for frame in ctx ]
+    asl_frames = [ i for i,code in enumerate(frame_codes) if code < 3 ]
+    calib_frames = [ i for i,code in enumerate(frame_codes) if code == 3 ]
+    asl_frame_codes = [frame_codes[i] for i in asl_frames]
+
+    if not asl_frames:
+        raise utils.IncompatabilityError("No ASL data (label/control or deltam found in ASL data file")
+    elif len(asl_frames) == 1 and frame_codes[asl_frames[0]] != 2:
+        raise utils.IncompatabilityError("Only one ASL volume found in ASL data file and it was not a deltam image")
+
+    return asl_frames, asl_frame_codes, calib_frames
+
+def _get_iaf(asl_frame_codes):
+    if asl_frame_codes[0] == 2:
+        return 'diff'
+    else:
+        label_idxs = [idx for idx, frame_type in enumerate(asl_frame_codes) if frame_type == 1]
+        control_idxs = [idx for idx, frame_type in enumerate(asl_frame_codes) if frame_type == 2]
+        if all([idx % 2 == 0 for idx in label_idxs]) and all([idx % 2 == 1 for idx in control_idxs]):
+            return 'tc'
+        elif all([idx % 2 == 1 for idx in label_idxs]) and all([idx % 2 == 0 for idx in control_idxs]):
+            return 'ct'
+        else:
+            # FIXME detect other kinds of ordering, e.g. TTTTTCCCCC etc
+            raise utils.IncompatabilityError("Could not interpret label-control order in aslcontext.tsv")
+
 def _get_asl_config(asl_file):
     """
     Extract relevant oxasl configuration from a BIDSImageFile containing ASL data
@@ -218,44 +261,9 @@ def _get_asl_config(asl_file):
     if not os.path.isfile(ctx_filename):
         raise utils.IncompatabilityError("ASL context file not found")
 
-    with open(ctx_filename) as f:
-        ctx = [l.lower().strip() for l in f.readlines() if l.strip()]
-    if ctx[0] != 'volume_type':
-        raise utils.IncompatabilityError("First line in ASL context is not volume_type")
-    ctx = ctx[1:]
-    if 'cbf' in ctx:
-        raise utils.IncompatabilityError("ASL context contains CBF images")
-    if 'deltam' in ctx and ('label' in ctx or 'control' in ctx):
-        raise utils.IncompatabilityError("ASL sequence is mixed deltam and control/label")
-
-    keys = {'control' : 0,
-            'control(perev)': 0,
-            'label': 1,
-            'deltam': 2,
-            'm0scan': 3}
-
-    frame_codes = [ keys[frame] for frame in ctx ]
-    asl_frames = [ i for i,code in enumerate(frame_codes) if code < 3 ]
-    calib_frames = [ i for i,code in enumerate(frame_codes) if code == 3 ]
-    asl_frame_codes = [frame_codes[i] for i in asl_frames]
-    if not asl_frames:
-        raise utils.IncompatabilityError("No ASL data (label/control or deltam found in ASL data file")
-    elif len(asl_frames) == 1 and frame_codes[asl_frames[0]] != 2:
-        raise utils.IncompatabilityError("Only one ASL volume found in ASL data file and it was not a deltam image")
-
-    if asl_frame_codes[0] == 2:
-        options["iaf"] = 'diff'
-    else:
-        label_idxs = [idx for idx, frame_type in enumerate(asl_frame_codes) if frame_type == 1]
-        control_idxs = [idx for idx, frame_type in enumerate(asl_frame_codes) if frame_type == 2]
-        if all([idx % 2 == 0 for idx in label_idxs]) and all([idx % 2 == 1 for idx in control_idxs]):
-            options["iaf"] = 'tc'
-        elif all([idx % 2 == 1 for idx in label_idxs]) and all([idx % 2 == 0 for idx in control_idxs]):
-            options["iaf"] = 'ct'
-        else:
-            # FIXME detect other kinds of ordering, e.g. TTTTTCCCCC etc
-            raise utils.IncompatabilityError("Could not interpret label-control order in aslcontext.tsv")
-
+    asl_frames, asl_frame_codes, calib_frames = _parse_aslcontext(ctx_filename)
+    options["iaf"] = _get_iaf(asl_frame_codes)
+    if options["iaf"] in ("ct", "tc"):
         # With TC or CT pairs the timings will be repeated. We don't care about the order since
         # no valid ASL sequence will have different timings for tag and control.
         ttype = 'plds' if options.get('casl', False) else "tis"
