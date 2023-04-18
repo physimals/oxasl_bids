@@ -7,8 +7,8 @@ import logging
 LOG = logging.getLogger(__name__)
 
 def _is_casl(js_dict, oxasl_dict):
-    label_type = js_dict.get('LabelingType', js_dict['ArterialSpinLabelingType'])
-    if label_type != 'PASL': 
+    label_type = js_dict.get('LabelingType', js_dict.get('ArterialSpinLabelingType', None))
+    if label_type is not None and label_type != 'PASL': 
         return True
 
 def _calc_bolus(js_dict, oxasl_dict):
@@ -25,11 +25,13 @@ def _calc_slicedt(js_dict, oxasl_dict):
 
 def _interpret_pedir(js_dict, oxasl_dict):
     dir_map = {"i" : "x", "j" : "y", "k" : "z"}
-    pedir = js_dict['PhaseEncodingDirection']
-    oxasl_pedir = dir_map[pedir.strip("-")]
-    if pedir.count('-'):
-        oxasl_pedir = '-' + oxasl_pedir
-    return oxasl_pedir
+    pedir = js_dict.get('PhaseEncodingDirection', None)
+    if pedir is not None:
+        oxasl_pedir = dir_map.get(pedir.strip("-"), None)
+        if oxasl_pedir is not None:
+            if pedir.count('-'):
+                oxasl_pedir = '-' + oxasl_pedir
+            return oxasl_pedir
 
 def _postproc_asl(metadata, options):
     # Find out what field we're using for timings based on whether it's PCASL or PASL
