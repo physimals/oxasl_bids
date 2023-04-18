@@ -120,7 +120,7 @@ def do_img(args, remainder):
     nii, metadata = utils.load_img(args.img)
     options = {args.img_type : args.img}
     options.update(oxasl_config_from_metadata(metadata, args.img_type))
-    print(get_oxasl_command_line(options, prog="", extra_args=remainder))
+    print(get_oxasl_command_line(options, extra_args=remainder))
 
 def do_bidsout(args, remainder):
     """
