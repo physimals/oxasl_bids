@@ -129,7 +129,7 @@ def get_fslanat_command(options):
                    and FSL_ANAT option added
     :return: Command line to run FSL_ANAT on the structural data from the OXASL configuration
     """
-    struct_data = options.pop("struct")
+    struct_data = options.pop("struc")
     struct_name = os.path.basename(struct_data[:struct_data.index(".nii")])
     options["fslanat"] = struct_name + ".anat"
     return f"fsl_anat -i {struct_data} -o {options['fslanat']}\n"
@@ -146,7 +146,7 @@ def get_oxasl_command_line(options, extra_args=[]):
             key = "-i"
         elif key == "calib":
             key = "-c"
-        elif key == "struct":
+        elif key == "struc":
             key = "-s"
         elif key == "output":
             key = "-o"
@@ -292,8 +292,8 @@ def _get_asl_config(asl_file):
                 options.update(oxasl_config_from_metadata(bids_file.get_metadata(), "calib"))
     return options
 
-def _get_struct_config(struct_file):
-    return {"struct" : op.abspath(struct_file.path)}
+def _get_struc_config(struct_file):
+    return {"struc" : op.abspath(struc_file.path)}
 
 def _get_calib_config(m0_file):
     """
@@ -335,7 +335,7 @@ def _get_oxasl_config(asl_file, sess_files):
 
     # Look for structural data
     if sess_files["T1w"]:
-        options.update(_get_struct_config(sess_files["T1w"][0]))
+        options.update(_get_struc_config(sess_files["T1w"][0]))
         if len(sess_files["T1w"]) > 1:
             LOG.warn("Multiple T1w structural images found for ASL file %{asl_file} - using first")
 

@@ -56,7 +56,7 @@ class ArgumentParser(argparse.ArgumentParser):
         group.add_argument('--run-fslanat', help="Include commands to run FSL_ANAT on structural images", action='store_true')
         group = self.add_argument_group('Args mode options')
         group.add_argument('--img', help="Path to image file with matching JSON sidecar")
-        group.add_argument('--img-type', help="Image type", choices=["asl", "calib", "cblip"])
+        group.add_argument('--img-type', help="Image type", choices=["asl", "calib", "cblip", "struc"])
         group = self.add_argument_group('Bids output mode options (--bidsdir required)')
         group.add_argument('--oxasl-output', help="Path to oxasl output")
         group.add_argument('--bids-output', help="Directory to store BIDS output in (if not using --merge-source)")

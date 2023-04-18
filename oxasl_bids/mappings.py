@@ -88,7 +88,7 @@ METADATA_MAPPINGS = {
         (None, _postproc_asl),
     ],
 
-    "struct" : [
+    "struc" : [
         # Structural options
         ('struc', None), 
         ('fsl_anat', None), 
@@ -116,7 +116,7 @@ def oxasl_config_from_metadata(metadata, filetype, **extra_metadata):
     Get the relevant oxasl options from JSON metadata
     
     :param metadata: Metadata dictionary
-    :param filetype: Type of file metadata describes: asl, calib, cblip, struct
+    :param filetype: Type of file metadata describes: asl, calib, cblip, struc
     :param extra_metadata: Keyword arguments to override metadata from JSON file
     """
     oxasl_config = {}
