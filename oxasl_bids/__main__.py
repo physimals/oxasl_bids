@@ -101,7 +101,7 @@ def do_bids(args, remainder):
     fsl_anat_calls = []
     for config in oxasl_config_from_bids(args.bidsdir):
         options = config["options"]
-        if args.run_fslanat and "struct" in options:
+        if args.run_fslanat and "struc" in options:
             fslanat_cmd = get_fslanat_command(options)
             if fslanat_cmd not in fsl_anat_calls:
                 print(fslanat_cmd)
@@ -120,7 +120,7 @@ def do_img(args, remainder):
     nii, metadata = utils.load_img(args.img)
     options = {args.img_type : args.img}
     options.update(oxasl_config_from_metadata(metadata, args.img_type))
-    print(get_oxasl_command_line(options, extra_args=remainder))
+    print(get_oxasl_command_line(options, extra_args=remainder, prog=""))
 
 def do_bidsout(args, remainder):
     """

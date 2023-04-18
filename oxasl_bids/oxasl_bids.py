@@ -134,13 +134,16 @@ def get_fslanat_command(options):
     options["fslanat"] = struct_name + ".anat"
     return f"fsl_anat -i {struct_data} -o {options['fslanat']}\n"
 
-def get_oxasl_command_line(options, extra_args=[]):
+def get_oxasl_command_line(options, extra_args=[], prog="oxasl"):
     """
     :param options: Dictionary of options derived from BIDS
 
     :return: Command string to run oxasl
     """
-    txt = 'oxasl '
+    if prog:
+        txt = f' {prog} '
+    else:
+        txt = ''
     for key,val in options.items():
         if key == "asl":
             key = "-i"
